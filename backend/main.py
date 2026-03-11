@@ -673,23 +673,7 @@ async def cut_video_segment_enhanced(
                 video_parts.append(f"subtitles={rel_subtitle_path}")
                 print(f"     • Subtitles: {rel_subtitle_path} (0-based, perfect sync!)")
             
-            # Add emoji overlays if provided
-            if emoji_sequence:
-                from emoji_overlay import add_emoji_overlays_to_filter_chain
-                emoji_filters = []
-                for emoji_config in emoji_sequence:
-                    from emoji_overlay import create_emoji_overlay_filter
-                    emoji_filter = create_emoji_overlay_filter(
-                        emoji_list=[emoji_config["emoji"]],
-                        start_time=emoji_config["start"],
-                        duration=emoji_config.get("duration", 1.5),
-                        video_width=1080,
-                        video_height=1920,
-                    )
-                    if emoji_filter:
-                        emoji_filters.append(emoji_filter)
-                video_parts.extend(emoji_filters)
-                print(f"     • Emoji overlays: {len(emoji_filters)} pop-ups")
+            # Emoji overlays disabled: FFmpeg drawtext with emoji crashes on Ubuntu (exit code 234)
             
             video_chain = ",".join(video_parts)
             print(f"     • Hook zoom: first 3s zoompan")

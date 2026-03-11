@@ -280,13 +280,8 @@ async def render_single_clip_with_progress(
             print(f"  -> No SFX files in assets/sfx/ — skipping")
 
     # ── Step 9: Emoji Pop-ups ───────────────────────────────────────────
+    # Disabled: FFmpeg drawtext with emoji (NotoColorEmoji) crashes on Ubuntu with libx264 (exit code 234)
     emoji_sequence = []
-    clip_emojis = extract_emojis_from_metadata(clip)
-    if clip_emojis:
-        clip_duration = clip["end_time"] - clip["start_time"]
-        emoji_sequence = create_multi_emoji_sequence(clip_emojis, clip_duration, max_emojis=2)
-        if emoji_sequence:
-            print(f"  -> Emojis: {len(emoji_sequence)} pop-ups ({', '.join([e['emoji'] for e in emoji_sequence])})")
 
     print(f"\n-> Rendering Clip {clip_index + 1}: {clip['title'][:40]}...")
     print(f"  -> Task ID: {task_id}")
