@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { API_BASE } from "@/lib/api";
 
 interface Candidate {
   start_time: number;
@@ -34,7 +35,7 @@ export default function CandidatesPage() {
     try {
       setLoading(true);
       const token = typeof window !== 'undefined' ? localStorage.getItem('cg_access_token') : null
-      const response = await fetch(`http://localhost:8000/clips/${fileId}/candidates`, {
+      const response = await fetch(`${API_BASE}/clips/${fileId}/candidates`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!response.ok) {
@@ -75,7 +76,7 @@ export default function CandidatesPage() {
       setRendering((prev) => new Set(prev).add(index));
       
       const tokenR = typeof window !== 'undefined' ? localStorage.getItem('cg_access_token') : null
-      const response = await fetch(`http://localhost:8000/extract-clips/${fileId}`, {
+      const response = await fetch(`${API_BASE}/extract-clips/${fileId}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -111,7 +112,7 @@ export default function CandidatesPage() {
       setRendering(new Set(candidates.map((_, i) => i)));
       
       const tokenA = typeof window !== 'undefined' ? localStorage.getItem('cg_access_token') : null
-      const response = await fetch(`http://localhost:8000/extract-clips/${fileId}`, {
+      const response = await fetch(`${API_BASE}/extract-clips/${fileId}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

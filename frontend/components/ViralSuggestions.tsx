@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Zap, Sparkles, Clock, TrendingUp, Loader2 } from 'lucide-react'
-import { api } from '@/lib/api'
+import { api, API_BASE } from '@/lib/api'
 
 interface ViralMoment {
   start_time: number
@@ -126,7 +126,7 @@ export default function ViralSuggestions({ fileId, onMomentsDiscovered }: ViralS
                   {moment.thumbnail_url && (
                     <div className="relative w-24 h-32 rounded-lg overflow-hidden flex-shrink-0 bg-gray-100">
                       <img
-                        src={`http://localhost:8000${moment.thumbnail_url}`}
+                        src={`${API_BASE}${moment.thumbnail_url}`}
                         alt={moment.title}
                         className="w-full h-full object-cover"
                       />

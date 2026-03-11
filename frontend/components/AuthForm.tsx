@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import axios from 'axios'
-import { saveToken } from '@/lib/api'
+import { saveToken, API_BASE } from '@/lib/api'
 
 interface AuthFormProps {
   onAuthSuccess: () => void
@@ -22,11 +22,11 @@ export default function AuthForm({ onAuthSuccess }: AuthFormProps) {
 
     try {
       if (mode === 'register') {
-        await axios.post('http://localhost:8000/auth/register', { email, password })
+        await axios.post(`${API_BASE}/auth/register`, { email, password })
       }
 
       const resp = await axios.post(
-        'http://localhost:8000/auth/login',
+        `${API_BASE}/auth/login`,
         new URLSearchParams({ username: email, password }),
         { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
       )

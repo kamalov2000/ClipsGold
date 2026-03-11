@@ -781,7 +781,7 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
                               const shiftPct = -(offsetPx / sourceWidth) * 100
                               return (
                                 <img
-                                  src={`http://localhost:8000${candidate.thumbnail_url}`}
+                                  src={`${API_BASE}${candidate.thumbnail_url}`}
                                   alt="Video frame"
                                   className="absolute inset-0 w-full h-full object-contain transition-transform duration-75"
                                   style={{ transform: `translateX(${shiftPct.toFixed(2)}%)` }}
