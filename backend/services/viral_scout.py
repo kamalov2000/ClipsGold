@@ -1,0 +1,362 @@
+"""
+Viral Scout: AI-powered viral moment detection using GPT-4o.
+Analyzes full transcripts to identify high-impact segments with emotional hooks.
+"""
+
+import json
+import os
+import re
+import asyncio
+from typing import List, Dict, Any, Optional
+from dotenv import load_dotenv
+
+load_dotenv()
+
+VIRAL_SCOUT_SYSTEM_PROMPT = """You are a viral content expert specializing in short-form video platforms (TikTok, YouTube Shorts, Instagram Reels).
+
+Your task: Analyze a video transcript and identify 3-5 high-impact segments that have viral potential.
+
+CRITERIA FOR VIRAL MOMENTS:
+1. **Emotional Hooks**: Controversy, shock, humor, inspiration, relatability
+2. **Standalone Value**: Segment makes sense without prior context
+3. **Optimal Length**: 15-60 seconds (ideal for short-form platforms)
+4. **Peak Moments**: Climax of a story, punchline, revelation, strong opinion
+5. **Cultural Relevance**: References to trending topics, memes, or universal experiences
+
+WHAT TO AVOID:
+- Setup without payoff (beginning of stories)
+- Transitions or filler content
+- Segments requiring extensive context
+- Overly long explanations
+
+OUTPUT FORMAT (strict JSON):
+[
+  {
+    "start_time": 45.2,
+    "end_time": 62.8,
+    "title": "SHOCK WAGES",
+    "viral_score": 8,
+    "hook": "Brief explanation of why this is viral (emotional trigger, controversy, humor, etc.)"
+  }
+]
+
+RULES:
+- Return ONLY valid JSON array (no markdown, no explanations)
+- viral_score: 1-10 (10 = extremely viral potential)
+- title: NO MORE than 3 words. Use STRONG VERBS. NO long sentences. Examples: "SHOCK WAGES", "WOKE DEAD", "EPIC FAIL"
+- Identify 3-5 segments minimum
+- Each segment: 15-60 seconds duration
+- Preserve original language context (slang, brands, names stay as-is)
+- Title must be SHORT and PUNCHY - will overlay on video
+"""
+
+
+async def discover_viral_moments(
+    transcription_data: Dict[str, Any],
+    min_segments: int = 3,
+    max_segments: int = 5
+) -> List[Dict[str, Any]]:
+    """
+    Analyze transcript and discover viral moments using GPT-4o.
+    
+    Args:
+        transcription_data: Full transcription with segments and timestamps
+        min_segments: Minimum number of viral moments to find
+        max_segments: Maximum number of viral moments to find
+    
+    Returns:
+        List of viral moment dictionaries with start_time, end_time, title, viral_score, hook
+    """
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        print("[WARN] OPENAI_API_KEY not set - cannot discover viral moments")
+        return []
+    
+    # Build transcript with timestamps for context
+    segments = transcription_data.get("segments", [])
+    if not segments:
+        print("[WARN] No segments in transcription")
+        return []
+    
+    # Format transcript with timestamps for AI analysis
+    transcript_lines = []
+    for seg in segments:
+        start = seg.get("start", 0)
+        end = seg.get("end", start)
+        text = seg.get("text", "").strip()
+        if text:
+            transcript_lines.append(f"[{start:.1f}s - {end:.1f}s] {text}")
+    
+    if not transcript_lines:
+        print("[WARN] No text content in segments")
+        return []
+    
+    full_transcript = "\n".join(transcript_lines)
+    
+    # Prepare user prompt
+    user_prompt = f"""Analyze this transcript and identify {min_segments}-{max_segments} viral moments:
+
+{full_transcript}
+
+Return JSON array of viral moments with start_time, end_time, title, viral_score, and hook."""
+    
+    try:
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(api_key=api_key)
+        
+        print(f"🔍 Analyzing transcript for viral moments ({len(segments)} segments)...")
+        
+        raw_response = None
+        last_error = None
+        for attempt in range(1, 4):
+            try:
+                response = await client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {"role": "system", "content": VIRAL_SCOUT_SYSTEM_PROMPT},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=0.7,
+                    max_tokens=2048,
+                )
+                raw_response = (response.choices[0].message.content or "").strip()
+                break
+            except Exception as e:
+                last_error = e
+                wait = 2 ** (attempt - 1)
+                print(f"[WARN] OpenAI attempt {attempt}/3 failed: {e}. Retrying in {wait}s...")
+                await asyncio.sleep(wait)
+        
+        if raw_response is None:
+            raise last_error or Exception("All OpenAI retries failed")
+        
+        # Clean markdown code blocks if present
+        raw_response = re.sub(r"^```\w*\s*", "", raw_response)
+        raw_response = re.sub(r"\s*```\s*$", "", raw_response)
+        
+        # Parse JSON
+        viral_moments = json.loads(raw_response)
+        
+        if not isinstance(viral_moments, list):
+            print("[WARN] AI response is not a list")
+            return []
+        
+        # Validate and filter moments
+        valid_moments = []
+        for moment in viral_moments:
+            if not isinstance(moment, dict):
+                continue
+            
+            # Required fields
+            if not all(k in moment for k in ["start_time", "end_time", "title", "viral_score"]):
+                continue
+            
+            # Validate types and ranges
+            try:
+                start = float(moment["start_time"])
+                end = float(moment["end_time"])
+                score = int(moment["viral_score"])
+                title = str(moment["title"]).strip()
+                hook = str(moment.get("hook", "")).strip()
+                
+                # Validate duration (15-60 seconds)
+                duration = end - start
+                if duration < 15 or duration > 60:
+                    print(f"[WARN] Skipping moment '{title}' - duration {duration:.1f}s outside 15-60s range")
+                    continue
+                
+                # Validate score range
+                if score < 1 or score > 10:
+                    score = max(1, min(10, score))
+                
+                valid_moments.append({
+                    "start_time": start,
+                    "end_time": end,
+                    "title": title,
+                    "viral_score": score,
+                    "hook": hook,
+                    "duration": duration
+                })
+            except (ValueError, TypeError) as e:
+                print(f"[WARN] Invalid moment data: {e}")
+                continue
+        
+        # Sort by viral score (highest first)
+        valid_moments.sort(key=lambda x: x["viral_score"], reverse=True)
+        
+        print(f"[OK] Discovered {len(valid_moments)} viral moments")
+        for i, moment in enumerate(valid_moments, 1):
+            print(f"  {i}. [{moment['start_time']:.1f}s-{moment['end_time']:.1f}s] "
+                  f"'{moment['title']}' (score: {moment['viral_score']}/10)")
+        
+        return valid_moments
+    
+    except json.JSONDecodeError as e:
+        print(f"[WARN] Failed to parse AI response as JSON: {e}")
+        print(f"Raw response: {raw_response[:200]}...")
+        return []
+    except Exception as e:
+        print(f"[WARN] Error discovering viral moments: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+
+
+async def get_semantic_subtitle_chunks(
+    segment_text: str,
+    segment_words: List[Dict[str, Any]],
+    preserve_timing: bool = True
+) -> List[Dict[str, Any]]:
+    """
+    Use GPT-4o to create semantic subtitle chunks instead of fixed word counts.
+    Each chunk represents a complete thought or natural pause.
+    
+    Args:
+        segment_text: Full text of the segment
+        segment_words: Word-level timing data from Whisper
+        preserve_timing: If True, map semantic chunks back to word timings
+    
+    Returns:
+        List of semantic chunks with text, start, and end times
+    """
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key or not segment_text.strip() or not segment_words:
+        # Fallback: return original words as single chunk
+        if segment_words:
+            return [{
+                "text": segment_text,
+                "start": segment_words[0].get("start", 0),
+                "end": segment_words[-1].get("end", 0)
+            }]
+        return []
+    
+    # Build word list with indices for mapping
+    word_list = []
+    for i, w in enumerate(segment_words):
+        word_text = w.get("word", "").strip()
+        if word_text:
+            word_list.append(f"{i}:{word_text}")
+    
+    if not word_list:
+        return []
+    
+    user_prompt = f"""Group these words into semantic chunks for subtitles. Each chunk should be 1-5 words and represent a complete thought or natural pause.
+
+RULES:
+- Keep brands/names in English (South Park, Woke, POV, etc.)
+- Natural speech rhythm (pause at commas, periods, thought breaks)
+- 1-5 words per chunk maximum
+- Return JSON array: [{{"words": [0, 1, 2]}}, {{"words": [3, 4]}}, ...]
+- "words" = array of word indices to group together
+
+Words (index:text):
+{', '.join(word_list)}
+
+Return ONLY JSON array of chunks."""
+    
+    try:
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(api_key=api_key)
+        
+        raw_response = None
+        last_error = None
+        for attempt in range(1, 4):
+            try:
+                response = await client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are a subtitle editor. Group words into semantic chunks for optimal readability. Return only JSON."
+                        },
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=0.3,
+                    max_tokens=1024,
+                )
+                raw_response = (response.choices[0].message.content or "").strip()
+                break
+            except Exception as e:
+                last_error = e
+                wait = 2 ** (attempt - 1)
+                print(f"[WARN] OpenAI subtitle chunk attempt {attempt}/3 failed: {e}. Retrying in {wait}s...")
+                await asyncio.sleep(wait)
+        
+        if raw_response is None:
+            raise last_error or Exception("All OpenAI retries failed")
+        
+        raw_response = re.sub(r"^```\w*\s*", "", raw_response)
+        raw_response = re.sub(r"\s*```\s*$", "", raw_response)
+        
+        chunk_groups = json.loads(raw_response)
+        
+        if not isinstance(chunk_groups, list):
+            raise ValueError("Response is not a list")
+        
+        # Map chunks back to timing data
+        semantic_chunks = []
+        covered_indices = set()
+
+        for group in chunk_groups:
+            if not isinstance(group, dict) or "words" not in group:
+                continue
+            
+            word_indices = group["words"]
+            if not isinstance(word_indices, list) or not word_indices:
+                continue
+            
+            # Gather words for this chunk
+            chunk_words = []
+            for idx in word_indices:
+                if isinstance(idx, int) and 0 <= idx < len(segment_words):
+                    chunk_words.append(segment_words[idx])
+                    covered_indices.add(idx)
+            
+            if not chunk_words:
+                continue
+            
+            # Build chunk with timing
+            chunk_text = " ".join(w.get("word", "").strip() for w in chunk_words).strip()
+            chunk_start = chunk_words[0].get("start", 0)
+            chunk_end = chunk_words[-1].get("end", chunk_start)
+            
+            semantic_chunks.append({
+                "text": chunk_text,
+                "start": chunk_start,
+                "end": chunk_end,
+                "words": chunk_words
+            })
+        
+        # Guard: if GPT missed any words, fall back to simple chunking
+        all_indices = set(range(len(segment_words)))
+        missing = all_indices - covered_indices
+        if missing:
+            # Fall back: simple fixed-size chunking (3 words per chunk)
+            simple_chunks = []
+            chunk_size = 3
+            for i in range(0, len(segment_words), chunk_size):
+                chunk_words = segment_words[i:i + chunk_size]
+                chunk_text = " ".join(w.get("word", "").strip() for w in chunk_words).strip()
+                simple_chunks.append({
+                    "text": chunk_text,
+                    "start": chunk_words[0].get("start", 0),
+                    "end": chunk_words[-1].get("end", 0),
+                    "words": chunk_words
+                })
+            return simple_chunks
+
+        return semantic_chunks if semantic_chunks else [{
+            "text": segment_text,
+            "start": segment_words[0].get("start", 0),
+            "end": segment_words[-1].get("end", 0),
+            "words": segment_words
+        }]
+    
+    except Exception as e:
+        # Fallback: return original as single chunk
+        return [{
+            "text": segment_text,
+            "start": segment_words[0].get("start", 0),
+            "end": segment_words[-1].get("end", 0),
+            "words": segment_words
+        }]

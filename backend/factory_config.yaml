@@ -1,0 +1,92 @@
+# ──────────────────────────────────────────────────────────────
+# ClipsGold Factory Configuration
+# Controls what content the autonomous scout searches for.
+# ──────────────────────────────────────────────────────────────
+
+scout:
+  # How often to run the scout (cron format: every 6 hours)
+  schedule_hours: 6
+
+  # Maximum videos to queue per scout run (per keyword)
+  max_per_keyword: 5
+
+  # Ignore videos shorter than this (seconds) — skip short ads/clips
+  min_video_length: 120      # 2 minutes
+
+  # Ignore videos longer than this (seconds) — avoid full movies
+  max_video_length: 7200     # 2 hours
+
+  # Minimum view count to consider (avoid low-quality content)
+  min_view_count: 50000
+
+  # Only accept videos uploaded within this many days
+  max_age_days: 90
+
+  # yt-dlp search results limit per query
+  search_results_per_query: 10
+
+keywords:
+  # Each entry: { query, niche, language }
+  - query: "бизнес подкаст нарезка"
+    niche: "business"
+    language: "ru"
+
+  - query: "стендап лучшие моменты"
+    niche: "comedy"
+    language: "ru"
+
+  - query: "предпринимательство интервью вирусное"
+    niche: "entrepreneurship"
+    language: "ru"
+
+  - query: "мотивация успех короткий клип"
+    niche: "motivation"
+    language: "ru"
+
+  - query: "alex hormozi best moments"
+    niche: "business"
+    language: "en"
+
+  - query: "joe rogan viral clip"
+    niche: "podcast"
+    language: "en"
+
+  - query: "andrew tate best moments"
+    niche: "motivation"
+    language: "en"
+
+  - query: "comedy roast best moments"
+    niche: "comedy"
+    language: "en"
+
+processing:
+  # Auto-approve clips with viral_score >= this threshold (0–10)
+  auto_approve_threshold: 8.5
+
+  # Maximum clips to auto-render per video
+  max_clips_per_video: 5
+
+  # Delete original source video after all clips are rendered
+  auto_cleanup_source: true
+
+  # Platform for auto-rendered clips
+  default_platform: "tiktok"
+
+  # Subtitle style for auto-rendered clips
+  default_subtitle_style: "hormozi"
+
+  # Maximum concurrent downloads
+  max_concurrent_downloads: 2
+
+  # Maximum videos to process per factory cycle
+  max_videos_per_cycle: 5
+
+notifications:
+  # Send Telegram message when a high-score clip is ready
+  telegram_enabled: true
+
+  # Only notify for clips with score >= this
+  notify_threshold: 8.0
+
+  # Include rendered video file in message (requires small file size)
+  send_video_preview: false

@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+venv312/
+.venv/
+env/
+ENV/
+
+# Secrets — NEVER commit
+.env
+.env.*
+!.env.example
+
+# Database
+*.db
+*.sqlite3
+
+# Uploads and outputs (generated files)
+uploads/
+outputs/
+clips/
+test_videos/
+
+# FFmpeg binary (large, OS-specific)
+ffmpeg.exe
+ffmpeg
+
+# YouTube cookies (may contain session data)
+youtube_cookies_generated.txt
+youtube_cookies*.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

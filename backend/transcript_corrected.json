@@ -1,0 +1,956 @@
+{
+  "segments": [
+    {
+      "text": " Это работала на фабрик, что ты именно делала? Ошила? Отдежда. Для кого? Для Беларусской милиции. Для милиции. Для милиции. Иронично. Ну тогда. Ну я могу сказать у меня была одна красная линия. В этих припреатиях также иногда шили одежду или российских военных. Это была моя личная красная линия. То есть если бы мне сказали, шица одежду или российских военных, я бы отказалась работать, я бы отказалась жить. Что связано с войну, естественно. Да, а что бы тогда было это? А я бы была в шизоп, прям всё, всё, всё, всё время. За это работа платят деньги. Да.",
+      "words": [
+        {
+          "word": " Это",
+          "start": 0.0,
+          "end": 0.0,
+          "filler": false
+        },
+        {
+          "word": " работала",
+          "start": 0.0,
+          "end": 0.24,
+          "filler": false
+        },
+        {
+          "word": " на",
+          "start": 0.24,
+          "end": 0.38,
+          "filler": false
+        },
+        {
+          "word": " фабрик,",
+          "start": 0.38,
+          "end": 0.64,
+          "filler": false
+        },
+        {
+          "word": " что",
+          "start": 0.72,
+          "end": 1.14,
+          "filler": false
+        },
+        {
+          "word": " ты",
+          "start": 1.14,
+          "end": 1.24,
+          "filler": false
+        },
+        {
+          "word": " именно",
+          "start": 1.24,
+          "end": 1.44,
+          "filler": false
+        },
+        {
+          "word": " делала?",
+          "start": 1.44,
+          "end": 1.84,
+          "filler": false
+        },
+        {
+          "word": " Ошила?",
+          "start": 1.98,
+          "end": 2.38,
+          "filler": false
+        },
+        {
+          "word": " Отдежда.",
+          "start": 2.54,
+          "end": 2.94,
+          "filler": false
+        },
+        {
+          "word": " Для",
+          "start": 3.2,
+          "end": 3.6,
+          "filler": false
+        },
+        {
+          "word": " кого?",
+          "start": 3.6,
+          "end": 3.86,
+          "filler": false
+        },
+        {
+          "word": " Для",
+          "start": 4.08,
+          "end": 4.38,
+          "filler": false
+        },
+        {
+          "word": " Беларусской",
+          "start": 4.38,
+          "end": 5.16,
+          "filler": false
+        },
+        {
+          "word": " милиции.",
+          "start": 5.16,
+          "end": 5.54,
+          "filler": false
+        },
+        {
+          "word": " Для",
+          "start": 5.68,
+          "end": 5.84,
+          "filler": false
+        },
+        {
+          "word": " милиции.",
+          "start": 5.84,
+          "end": 6.16,
+          "filler": false
+        },
+        {
+          "word": " Для",
+          "start": 6.82,
+          "end": 6.84,
+          "filler": false
+        },
+        {
+          "word": " милиции.",
+          "start": 6.84,
+          "end": 7.32,
+          "filler": false
+        },
+        {
+          "word": " Иронично.",
+          "start": 7.5,
+          "end": 7.9,
+          "filler": false
+        },
+        {
+          "word": " Ну",
+          "start": 8.24,
+          "end": 8.36,
+          "filler": false
+        },
+        {
+          "word": " тогда.",
+          "start": 8.36,
+          "end": 8.64,
+          "filler": false
+        },
+        {
+          "word": " Ну",
+          "start": 9.24,
+          "end": 9.38,
+          "filler": false
+        },
+        {
+          "word": " я",
+          "start": 9.38,
+          "end": 9.52,
+          "filler": false
+        },
+        {
+          "word": " могу",
+          "start": 9.52,
+          "end": 9.68,
+          "filler": false
+        },
+        {
+          "word": " сказать",
+          "start": 9.68,
+          "end": 9.92,
+          "filler": false
+        },
+        {
+          "word": " у",
+          "start": 9.92,
+          "end": 10.14,
+          "filler": false
+        },
+        {
+          "word": " меня",
+          "start": 10.14,
+          "end": 10.24,
+          "filler": false
+        },
+        {
+          "word": " была",
+          "start": 10.24,
+          "end": 10.44,
+          "filler": false
+        },
+        {
+          "word": " одна",
+          "start": 10.44,
+          "end": 10.6,
+          "filler": false
+        },
+        {
+          "word": " красная",
+          "start": 10.6,
+          "end": 10.98,
+          "filler": false
+        },
+        {
+          "word": " линия.",
+          "start": 10.98,
+          "end": 11.32,
+          "filler": false
+        },
+        {
+          "word": " В",
+          "start": 11.52,
+          "end": 11.56,
+          "filler": false
+        },
+        {
+          "word": " этих",
+          "start": 11.56,
+          "end": 11.74,
+          "filler": false
+        },
+        {
+          "word": " припреатиях",
+          "start": 11.74,
+          "end": 12.36,
+          "filler": false
+        },
+        {
+          "word": " также",
+          "start": 12.36,
+          "end": 12.74,
+          "filler": false
+        },
+        {
+          "word": " иногда",
+          "start": 12.74,
+          "end": 13.0,
+          "filler": false
+        },
+        {
+          "word": " шили",
+          "start": 13.0,
+          "end": 13.52,
+          "filler": false
+        },
+        {
+          "word": " одежду",
+          "start": 13.52,
+          "end": 13.96,
+          "filler": false
+        },
+        {
+          "word": " или",
+          "start": 13.96,
+          "end": 14.28,
+          "filler": false
+        },
+        {
+          "word": " российских",
+          "start": 14.28,
+          "end": 14.74,
+          "filler": false
+        },
+        {
+          "word": " военных.",
+          "start": 14.74,
+          "end": 15.16,
+          "filler": false
+        },
+        {
+          "word": " Это",
+          "start": 15.32,
+          "end": 15.5,
+          "filler": false
+        },
+        {
+          "word": " была",
+          "start": 15.5,
+          "end": 15.7,
+          "filler": false
+        },
+        {
+          "word": " моя",
+          "start": 15.7,
+          "end": 15.88,
+          "filler": false
+        },
+        {
+          "word": " личная",
+          "start": 15.88,
+          "end": 16.22,
+          "filler": false
+        },
+        {
+          "word": " красная",
+          "start": 16.22,
+          "end": 16.64,
+          "filler": false
+        },
+        {
+          "word": " линия.",
+          "start": 16.64,
+          "end": 17.04,
+          "filler": false
+        },
+        {
+          "word": " То",
+          "start": 17.14,
+          "end": 17.16,
+          "filler": false
+        },
+        {
+          "word": " есть",
+          "start": 17.16,
+          "end": 17.3,
+          "filler": false
+        },
+        {
+          "word": " если",
+          "start": 17.3,
+          "end": 17.5,
+          "filler": false
+        },
+        {
+          "word": " бы",
+          "start": 17.5,
+          "end": 17.7,
+          "filler": false
+        },
+        {
+          "word": " мне",
+          "start": 17.7,
+          "end": 17.86,
+          "filler": false
+        },
+        {
+          "word": " сказали,",
+          "start": 17.86,
+          "end": 18.34,
+          "filler": false
+        },
+        {
+          "word": " шица",
+          "start": 18.5,
+          "end": 18.66,
+          "filler": false
+        },
+        {
+          "word": " одежду",
+          "start": 18.66,
+          "end": 18.96,
+          "filler": false
+        },
+        {
+          "word": " или",
+          "start": 18.96,
+          "end": 19.12,
+          "filler": false
+        },
+        {
+          "word": " российских",
+          "start": 19.12,
+          "end": 19.52,
+          "filler": false
+        },
+        {
+          "word": " военных,",
+          "start": 19.52,
+          "end": 19.92,
+          "filler": false
+        },
+        {
+          "word": " я",
+          "start": 19.92,
+          "end": 20.12,
+          "filler": false
+        },
+        {
+          "word": " бы",
+          "start": 20.12,
+          "end": 20.3,
+          "filler": false
+        },
+        {
+          "word": " отказалась",
+          "start": 20.3,
+          "end": 21.0,
+          "filler": false
+        },
+        {
+          "word": " работать,",
+          "start": 21.0,
+          "end": 21.38,
+          "filler": false
+        },
+        {
+          "word": " я",
+          "start": 21.5,
+          "end": 21.58,
+          "filler": false
+        },
+        {
+          "word": " бы",
+          "start": 21.58,
+          "end": 21.7,
+          "filler": false
+        },
+        {
+          "word": " отказалась",
+          "start": 21.7,
+          "end": 22.0,
+          "filler": false
+        },
+        {
+          "word": " жить.",
+          "start": 22.0,
+          "end": 22.3,
+          "filler": false
+        },
+        {
+          "word": " Что",
+          "start": 22.5,
+          "end": 22.64,
+          "filler": false
+        },
+        {
+          "word": " связано",
+          "start": 22.64,
+          "end": 23.04,
+          "filler": false
+        },
+        {
+          "word": " с",
+          "start": 23.04,
+          "end": 23.24,
+          "filler": false
+        },
+        {
+          "word": " войну,",
+          "start": 23.24,
+          "end": 23.5,
+          "filler": false
+        },
+        {
+          "word": " естественно.",
+          "start": 23.6,
+          "end": 23.98,
+          "filler": false
+        },
+        {
+          "word": " Да,",
+          "start": 24.0,
+          "end": 24.14,
+          "filler": false
+        },
+        {
+          "word": " а",
+          "start": 24.24,
+          "end": 24.26,
+          "filler": false
+        },
+        {
+          "word": " что",
+          "start": 24.26,
+          "end": 24.4,
+          "filler": false
+        },
+        {
+          "word": " бы",
+          "start": 24.4,
+          "end": 24.5,
+          "filler": false
+        },
+        {
+          "word": " тогда",
+          "start": 24.5,
+          "end": 24.64,
+          "filler": false
+        },
+        {
+          "word": " было",
+          "start": 24.64,
+          "end": 24.86,
+          "filler": false
+        },
+        {
+          "word": " это?",
+          "start": 24.86,
+          "end": 25.02,
+          "filler": false
+        },
+        {
+          "word": " А",
+          "start": 25.02,
+          "end": 25.1,
+          "filler": false
+        },
+        {
+          "word": " я",
+          "start": 25.1,
+          "end": 25.24,
+          "filler": false
+        },
+        {
+          "word": " бы",
+          "start": 25.24,
+          "end": 25.38,
+          "filler": false
+        },
+        {
+          "word": " была",
+          "start": 25.38,
+          "end": 25.62,
+          "filler": false
+        },
+        {
+          "word": " в",
+          "start": 25.62,
+          "end": 25.76,
+          "filler": false
+        },
+        {
+          "word": " шизоп,",
+          "start": 25.76,
+          "end": 26.06,
+          "filler": false
+        },
+        {
+          "word": " прям",
+          "start": 26.34,
+          "end": 26.52,
+          "filler": false
+        },
+        {
+          "word": " всё,",
+          "start": 26.52,
+          "end": 26.88,
+          "filler": false
+        },
+        {
+          "word": " всё,",
+          "start": 26.98,
+          "end": 27.24,
+          "filler": false
+        },
+        {
+          "word": " всё,",
+          "start": 27.24,
+          "end": 27.44,
+          "filler": false
+        },
+        {
+          "word": " всё",
+          "start": 27.58,
+          "end": 27.58,
+          "filler": false
+        },
+        {
+          "word": " время.",
+          "start": 27.58,
+          "end": 27.74,
+          "filler": false
+        },
+        {
+          "word": " За",
+          "start": 27.94,
+          "end": 28.06,
+          "filler": false
+        },
+        {
+          "word": " это",
+          "start": 28.06,
+          "end": 28.18,
+          "filler": false
+        },
+        {
+          "word": " работа",
+          "start": 28.18,
+          "end": 28.42,
+          "filler": false
+        },
+        {
+          "word": " платят",
+          "start": 28.42,
+          "end": 28.68,
+          "filler": false
+        },
+        {
+          "word": " деньги.",
+          "start": 28.68,
+          "end": 28.9,
+          "filler": false
+        },
+        {
+          "word": " Да.",
+          "start": 29.08,
+          "end": 29.38,
+          "filler": false
+        }
+      ]
+    },
+    {
+      "text": " Ну это нельзя назвать платой, рабблотой, на самом деле. Мы последние зарплата, это потому что я очень много работала и делал какой-то продукт с хорошего качества. Я получила около 80 рублей. Переведи, пожалуйста, в Евро. 25 евро? Это за месяц работа. Да. Ну то есть, по сути, это рабский труд. По сути, да. Ну это на следе советского союза.",
+      "words": [
+        {
+          "word": " Ну",
+          "start": 29.38,
+          "end": 29.82,
+          "filler": false
+        },
+        {
+          "word": " это",
+          "start": 29.82,
+          "end": 30.04,
+          "filler": false
+        },
+        {
+          "word": " нельзя",
+          "start": 30.04,
+          "end": 30.3,
+          "filler": false
+        },
+        {
+          "word": " назвать",
+          "start": 30.3,
+          "end": 30.94,
+          "filler": false
+        },
+        {
+          "word": " платой,",
+          "start": 30.94,
+          "end": 31.48,
+          "filler": false
+        },
+        {
+          "word": " рабблотой,",
+          "start": 31.52,
+          "end": 32.32,
+          "filler": false
+        },
+        {
+          "word": " на",
+          "start": 32.34,
+          "end": 32.4,
+          "filler": false
+        },
+        {
+          "word": " самом",
+          "start": 32.4,
+          "end": 32.66,
+          "filler": false
+        },
+        {
+          "word": " деле.",
+          "start": 32.66,
+          "end": 32.9,
+          "filler": false
+        },
+        {
+          "word": " Мы",
+          "start": 33.24,
+          "end": 33.36,
+          "filler": false
+        },
+        {
+          "word": " последние",
+          "start": 33.36,
+          "end": 33.9,
+          "filler": false
+        },
+        {
+          "word": " зарплата,",
+          "start": 33.9,
+          "end": 34.52,
+          "filler": false
+        },
+        {
+          "word": " это",
+          "start": 34.64,
+          "end": 34.76,
+          "filler": false
+        },
+        {
+          "word": " потому",
+          "start": 34.76,
+          "end": 34.98,
+          "filler": false
+        },
+        {
+          "word": " что",
+          "start": 34.98,
+          "end": 35.16,
+          "filler": false
+        },
+        {
+          "word": " я",
+          "start": 35.16,
+          "end": 35.28,
+          "filler": false
+        },
+        {
+          "word": " очень",
+          "start": 35.28,
+          "end": 35.54,
+          "filler": false
+        },
+        {
+          "word": " много",
+          "start": 35.54,
+          "end": 35.92,
+          "filler": false
+        },
+        {
+          "word": " работала",
+          "start": 35.92,
+          "end": 36.62,
+          "filler": false
+        },
+        {
+          "word": " и",
+          "start": 36.62,
+          "end": 36.82,
+          "filler": false
+        },
+        {
+          "word": " делал",
+          "start": 36.82,
+          "end": 37.52,
+          "filler": false
+        },
+        {
+          "word": " какой",
+          "start": 37.52,
+          "end": 37.68,
+          "filler": false
+        },
+        {
+          "word": "-то",
+          "start": 37.68,
+          "end": 37.78,
+          "filler": false
+        },
+        {
+          "word": " продукт",
+          "start": 37.78,
+          "end": 38.18,
+          "filler": false
+        },
+        {
+          "word": " с",
+          "start": 38.18,
+          "end": 38.34,
+          "filler": false
+        },
+        {
+          "word": " хорошего",
+          "start": 38.34,
+          "end": 38.66,
+          "filler": false
+        },
+        {
+          "word": " качества.",
+          "start": 38.66,
+          "end": 39.18,
+          "filler": false
+        },
+        {
+          "word": " Я",
+          "start": 39.28,
+          "end": 39.36,
+          "filler": false
+        },
+        {
+          "word": " получила",
+          "start": 39.36,
+          "end": 39.82,
+          "filler": false
+        },
+        {
+          "word": " около",
+          "start": 39.82,
+          "end": 40.0,
+          "filler": false
+        },
+        {
+          "word": " 80",
+          "start": 40.0,
+          "end": 40.34,
+          "filler": false
+        },
+        {
+          "word": " рублей.",
+          "start": 40.34,
+          "end": 40.88,
+          "filler": false
+        },
+        {
+          "word": " Переведи,",
+          "start": 41.04,
+          "end": 41.3,
+          "filler": false
+        },
+        {
+          "word": " пожалуйста,",
+          "start": 41.34,
+          "end": 41.52,
+          "filler": false
+        },
+        {
+          "word": " в",
+          "start": 41.76,
+          "end": 41.8,
+          "filler": false
+        },
+        {
+          "word": " Евро.",
+          "start": 41.8,
+          "end": 42.04,
+          "filler": false
+        },
+        {
+          "word": " 25",
+          "start": 42.24,
+          "end": 42.62,
+          "filler": false
+        },
+        {
+          "word": " евро?",
+          "start": 42.62,
+          "end": 43.16,
+          "filler": false
+        },
+        {
+          "word": " Это",
+          "start": 43.24,
+          "end": 43.36,
+          "filler": false
+        },
+        {
+          "word": " за",
+          "start": 43.36,
+          "end": 43.5,
+          "filler": false
+        },
+        {
+          "word": " месяц",
+          "start": 43.5,
+          "end": 43.72,
+          "filler": false
+        },
+        {
+          "word": " работа.",
+          "start": 43.72,
+          "end": 44.14,
+          "filler": false
+        },
+        {
+          "word": " Да.",
+          "start": 44.26,
+          "end": 44.34,
+          "filler": false
+        },
+        {
+          "word": " Ну",
+          "start": 44.5,
+          "end": 44.64,
+          "filler": false
+        },
+        {
+          "word": " то",
+          "start": 44.64,
+          "end": 44.7,
+          "filler": false
+        },
+        {
+          "word": " есть,",
+          "start": 44.7,
+          "end": 44.82,
+          "filler": false
+        },
+        {
+          "word": " по",
+          "start": 44.86,
+          "end": 44.94,
+          "filler": false
+        },
+        {
+          "word": " сути,",
+          "start": 44.94,
+          "end": 45.18,
+          "filler": false
+        },
+        {
+          "word": " это",
+          "start": 45.24,
+          "end": 45.32,
+          "filler": false
+        },
+        {
+          "word": " рабский",
+          "start": 45.32,
+          "end": 45.64,
+          "filler": false
+        },
+        {
+          "word": " труд.",
+          "start": 45.64,
+          "end": 45.86,
+          "filler": false
+        },
+        {
+          "word": " По",
+          "start": 46.04,
+          "end": 46.16,
+          "filler": false
+        },
+        {
+          "word": " сути,",
+          "start": 46.16,
+          "end": 46.4,
+          "filler": false
+        },
+        {
+          "word": " да.",
+          "start": 46.52,
+          "end": 46.58,
+          "filler": false
+        },
+        {
+          "word": " Ну",
+          "start": 46.8,
+          "end": 46.88,
+          "filler": false
+        },
+        {
+          "word": " это",
+          "start": 46.88,
+          "end": 47.1,
+          "filler": false
+        },
+        {
+          "word": " на",
+          "start": 47.1,
+          "end": 47.28,
+          "filler": false
+        },
+        {
+          "word": " следе",
+          "start": 47.28,
+          "end": 47.6,
+          "filler": false
+        },
+        {
+          "word": " советского",
+          "start": 47.6,
+          "end": 48.0,
+          "filler": false
+        },
+        {
+          "word": " союза.",
+          "start": 48.0,
+          "end": 48.48,
+          "filler": false
+        }
+      ]
+    }
+  ]
+}

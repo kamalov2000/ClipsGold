@@ -1,0 +1,87 @@
+# Niche Configuration for Autonomous AI Factory
+# Define search queries and keywords for automatic content discovery
+
+niches:
+  - name: "podcasts"
+    enabled: true
+    search_queries:
+      - "podcast highlights"
+      - "best podcast moments"
+      - "podcast clips"
+    keywords:
+      - "interview"
+      - "conversation"
+      - "discussion"
+    min_duration: 600  # 10 minutes
+    max_duration: 7200  # 2 hours
+    min_views: 10000
+    viral_score_threshold: 8
+
+  - name: "tech_review"
+    enabled: true
+    search_queries:
+      - "tech review"
+      - "gadget unboxing"
+      - "tech news"
+    keywords:
+      - "review"
+      - "unboxing"
+      - "first impressions"
+    min_duration: 300  # 5 minutes
+    max_duration: 1800  # 30 minutes
+    min_views: 50000
+    viral_score_threshold: 8
+
+  - name: "standup"
+    enabled: true
+    search_queries:
+      - "standup comedy"
+      - "comedian special"
+      - "comedy show"
+    keywords:
+      - "comedy"
+      - "funny"
+      - "standup"
+    min_duration: 300
+    max_duration: 3600
+    min_views: 20000
+    viral_score_threshold: 9
+
+  - name: "motivation"
+    enabled: true
+    search_queries:
+      - "motivational speech"
+      - "inspiration"
+      - "success story"
+    keywords:
+      - "motivation"
+      - "success"
+      - "mindset"
+    min_duration: 180
+    max_duration: 1200
+    min_views: 30000
+    viral_score_threshold: 8
+
+  - name: "business"
+    enabled: true
+    search_queries:
+      - "business advice"
+      - "entrepreneur tips"
+      - "startup story"
+    keywords:
+      - "business"
+      - "entrepreneur"
+      - "startup"
+    min_duration: 300
+    max_duration: 2400
+    min_views: 15000
+    viral_score_threshold: 8
+
+# Global settings
+settings:
+  max_videos_per_niche: 3
+  max_videos_per_day: 15
+  search_upload_date: "week"  # today, week, month, year
+  search_sort_by: "viewCount"  # relevance, date, rating, viewCount
+  auto_render_threshold: 8  # Only render clips with viral_score >= 8
+  max_clips_per_video: 3

@@ -1,0 +1,58 @@
+# ── Web framework ────────────────────────────────────────────
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+python-dotenv==1.0.0
+setuptools>=65.0.0
+
+# ── Database ─────────────────────────────────────────────────
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.9
+alembic>=1.13.0
+
+# ── Auth ─────────────────────────────────────────────────────
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+bcrypt==4.0.1
+
+# ── Rate limiting ─────────────────────────────────────────────
+slowapi>=0.1.9
+
+# ── Task queue ───────────────────────────────────────────────
+celery[redis]>=5.3.6
+redis>=5.0.1
+flower>=2.0.1
+
+# ── Object storage ───────────────────────────────────────────
+boto3>=1.34.0
+
+# ── Observability ────────────────────────────────────────────
+structlog>=24.1.0
+sentry-sdk[fastapi,celery,sqlalchemy]>=1.40.0
+
+# ── AI / ML ──────────────────────────────────────────────────
+openai-whisper
+openai>=1.50.0
+torch
+numpy
+mediapipe>=0.10.9
+opencv-python>=4.9.0
+
+# ── Video / Download ─────────────────────────────────────────
+yt-dlp[default]>=2024.1.7
+
+# ── Pydantic email validation ─────────────────────────────────
+email-validator>=2.1.0
+
+# ── Testing & load testing ────────────────────────────────────
+pytest>=8.0.0
+pytest-timeout>=2.3.0
+requests>=2.31.0
+locust>=2.24.0
+
+# ── Autonomous Factory ───────────────────────────────────────
+apscheduler>=3.10.4
+pyyaml>=6.0.1
+google-api-python-client>=2.100.0
+google-auth-oauthlib>=1.1.0
+google-auth-httplib2>=0.1.1
