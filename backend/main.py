@@ -587,13 +587,12 @@ async def cut_video_segment_enhanced(
             
             # Add subtitles if exists
             if subtitle_path and subtitle_path.exists():
-                rel_subtitle_path = os.path.relpath(subtitle_path, os.getcwd())
-                rel_subtitle_path = rel_subtitle_path.replace('\\', '/').replace(':', '\\:')
+                abs_subtitle_path = str(subtitle_path.resolve()).replace('\\', '/').replace(':', '\\:')
                 # Modify crop_filter to add subtitles before final output
                 # Replace [out] with [pre_sub], then add subtitle filter
                 filter_complex = crop_filter.replace('[out]', '[pre_sub]')
-                filter_complex += f";[pre_sub]subtitles={rel_subtitle_path}[out]"
-                print(f"     • Subtitles: {rel_subtitle_path} (centered at border)")
+                filter_complex += f";[pre_sub]subtitles={abs_subtitle_path}[out]"
+                print(f"     • Subtitles: {abs_subtitle_path} (centered at border)")
             else:
                 filter_complex = crop_filter
             
@@ -621,10 +620,9 @@ async def cut_video_segment_enhanced(
             
             # Step 4: Add subtitles if exists
             if subtitle_path and subtitle_path.exists():
-                rel_subtitle_path = os.path.relpath(subtitle_path, os.getcwd())
-                rel_subtitle_path = rel_subtitle_path.replace('\\', '/').replace(':', '\\:')
-                subtitle_filter = f"[vstacked]scale=1080:1920,subtitles={rel_subtitle_path}[out]"
-                print(f"     • Subtitles: {rel_subtitle_path} (0-based, perfect sync!)")
+                abs_subtitle_path = str(subtitle_path.resolve()).replace('\\', '/').replace(':', '\\:')
+                subtitle_filter = f"[vstacked]scale=1080:1920,subtitles={abs_subtitle_path}[out]"
+                print(f"     • Subtitles: {abs_subtitle_path} (0-based, perfect sync!)")
             else:
                 subtitle_filter = "[vstacked]scale=1080:1920[out]"
             
@@ -643,7 +641,7 @@ async def cut_video_segment_enhanced(
         if letterbox_with_blur:
             # Letterbox: scale to fit 1080x1920, fill black bars with blurred background
             print(f"     • LETTERBOX + BLUR MODE")
-            rel_sub = os.path.relpath(subtitle_path, os.getcwd()).replace('\\', '/').replace(':', '\\:') if subtitle_path and subtitle_path.exists() else None
+            rel_sub = str(subtitle_path.resolve()).replace('\\', '/').replace(':', '\\:') if subtitle_path and subtitle_path.exists() else None
             blur_filter = get_ffmpeg_blurred_background_filter("0:v", "blurred")
             # Main branch: scale to fit, pad to 1080x1920
             main_branch = "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2"
@@ -669,9 +667,9 @@ async def cut_video_segment_enhanced(
                 print(f"     • Crop: {crop_filter[:40]}...")
             video_parts.append("scale=1080:1920")
             if subtitle_path and subtitle_path.exists():
-                rel_subtitle_path = os.path.relpath(subtitle_path, os.getcwd()).replace('\\', '/').replace(':', '\\:')
-                video_parts.append(f"subtitles={rel_subtitle_path}")
-                print(f"     • Subtitles: {rel_subtitle_path} (0-based, perfect sync!)")
+                abs_subtitle_path = str(subtitle_path.resolve()).replace('\\', '/').replace(':', '\\:')
+                video_parts.append(f"subtitles={abs_subtitle_path}")
+                print(f"     • Subtitles: {abs_subtitle_path} (0-based, perfect sync!)")
             
             # Emoji overlays disabled: FFmpeg drawtext with emoji crashes on Ubuntu (exit code 234)
             

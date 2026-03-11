@@ -103,9 +103,8 @@ for idx, clip in enumerate(clips, 1):
     
     # Prepare subtitle path for FFmpeg (Windows path escaping)
     if subtitle_path and subtitle_path.exists():
-        rel_subtitle_path = os.path.relpath(subtitle_path, os.getcwd())
-        rel_subtitle_path = rel_subtitle_path.replace('\\', '/').replace(':', '\\:')
-        subtitle_filter = f"subtitles={rel_subtitle_path}"
+        abs_subtitle_path = str(subtitle_path.resolve()).replace('\\', '/').replace(':', '\\:')
+        subtitle_filter = f"subtitles={abs_subtitle_path}"
     else:
         subtitle_filter = None
     
