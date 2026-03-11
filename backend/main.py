@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import shutil
+import aiofiles
 import os
 import sys
 import subprocess
@@ -283,9 +284,6 @@ def get_ffprobe_path():
     local_ffprobe = BASE_DIR / "ffprobe.exe"
     return str(local_ffprobe) if local_ffprobe.exists() else "ffprobe"
 
-whisper_model = None
-
-
 def get_random_background_video() -> Optional[Path]:
     """
     Get a random background video from assets/background_videos.
@@ -342,12 +340,6 @@ def check_ffmpeg():
     except (subprocess.CalledProcessError, FileNotFoundError):
         return False
 
-
-def get_whisper_model():
-    global whisper_model
-    if whisper_model is None:
-        whisper_model = whisper.load_model("base")
-    return whisper_model
 
 
 def get_video_duration(video_path: Path) -> float:
@@ -840,14 +832,16 @@ async def upload_video(
 ):
     if not file.filename.endswith('.mp4'):
         raise HTTPException(status_code=400, detail="Only MP4 files are allowed")
-    
+
     file_id = str(uuid.uuid4())
     file_extension = Path(file.filename).suffix
     file_path = UPLOAD_DIR / f"{file_id}{file_extension}"
-    
-    with file_path.open("wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    
+
+    # Async chunked write — does not block the event loop during upload
+    async with aiofiles.open(file_path, "wb") as buffer:
+        while chunk := await file.read(1024 * 1024):  # 1 MB chunks
+            await buffer.write(chunk)
+
     return {
         "file_id": file_id,
         "filename": file.filename,

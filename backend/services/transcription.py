@@ -2,12 +2,37 @@
 Transcription service: Whisper ASR with initial_prompt and LLM refinement layer.
 """
 
+import gc
 import os
 from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
 load_dotenv()
+
+
+def _load_whisper_model():
+    import whisper
+    print("[transcription] Loading Whisper model 'base'...")
+    model = whisper.load_model("base")
+    print("[transcription] Whisper model loaded.")
+    return model
+
+
+def _unload_whisper_model(model) -> None:
+    """Release Whisper model from memory immediately after use."""
+    try:
+        import torch
+        if hasattr(model, "encoder"):
+            model.encoder.cpu()
+        if hasattr(model, "decoder"):
+            model.decoder.cpu()
+        del model
+        torch.cuda.empty_cache()
+    except Exception:
+        del model
+    gc.collect()
+    print("[transcription] Whisper model unloaded.")
 
 # Initial prompt for Whisper to improve recognition of common terms (max ~224 tokens)
 INITIAL_PROMPT_TERMS = "South Park, Cartman, ClipsGold, YouTube, TikTok, Instagram, viral, clip, менты, ментов, копы, предприятие, предприятиях, одежда, одежду, шить, шила, работой, следах, рабский, рабство, милиция, милиции, советский, союза."
@@ -57,22 +82,24 @@ def run_whisper_transcribe(audio_path: Path, word_timestamps: bool = True, initi
     Run OpenAI Whisper on an audio file.
     Uses initial_prompt to bias recognition of brands and common terms.
     """
-    import whisper
     # Whisper calls ffmpeg internally via subprocess. If ffmpeg is not in PATH
     # (e.g. only local ffmpeg.exe in backend dir), we add it here.
     import sys
     _backend_dir = str(Path(__file__).parent.parent)
     if _backend_dir not in os.environ.get("PATH", ""):
         os.environ["PATH"] = _backend_dir + os.pathsep + os.environ.get("PATH", "")
-    model = whisper.load_model("base")
+    model = _load_whisper_model()
     prompt = initial_prompt or INITIAL_PROMPT_TERMS
-    result = model.transcribe(
-        str(audio_path),
-        word_timestamps=word_timestamps,
-        initial_prompt=prompt[:500],
-    )
-    apply_word_corrections(result.get("segments", []))
-    return result
+    try:
+        result = model.transcribe(
+            str(audio_path),
+            word_timestamps=word_timestamps,
+            initial_prompt=prompt[:500],
+        )
+        apply_word_corrections(result.get("segments", []))
+        return result
+    finally:
+        _unload_whisper_model(model)
 
 
 def refine_transcript(raw_text: str) -> str:
