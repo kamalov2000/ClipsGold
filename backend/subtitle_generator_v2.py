@@ -243,33 +243,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         # \p1 = drawing mode, \1a = alpha, \c = color
         ass_content += f"Dialogue: 0,0:00:00.00,{progress_end},Default,,0,0,0,,{{\\pos(540,1915)\\p1\\c&H0000FFFF&\\1a&H00&\\t(0,{int(clip_duration*1000)},\\fscx0,\\fscx100)}}m 0 0 l 1080 0 1080 5 0 5{{\\p0}}\n"
         
-        # Add hook text at TOP (5% from top) - limited to 3 words max
-        if hook_text:
-            # Limit to 3 words maximum - short and punchy
-            hook_words = hook_text.split()[:3]
-            hook_text_short = " ".join(hook_words).upper()  # ALL CAPS for impact
-            hook_text_escaped = self.escape_ass_text(hook_text_short)
-            hook_end = self.format_timestamp(clip_duration)
-            # Hook uses style-defined position (MarginV=96, Alignment=8 for top)
-            ass_content += f"Dialogue: 0,0:00:00.00,{hook_end},Hook,,0,0,0,,{hook_text_escaped}\n"
-        
-        # Add emojis (rotate every 3 seconds)
-        if emojis and isinstance(emojis, list):
-            emoji_duration = 3.0  # Show each emoji for 3 seconds
-            
-            for i, emoji in enumerate(emojis[:3]):
-                emoji_start = i * emoji_duration
-                emoji_end = min((i + 1) * emoji_duration, clip_duration)
-                
-                if emoji_start >= clip_duration:
-                    break
-                
-                start_ts = self.format_timestamp(emoji_start)
-                end_ts = self.format_timestamp(emoji_end)
-                
-                # Emoji appears above hook text with bounce animation
-                ass_content += f"Dialogue: 0,{start_ts},{end_ts},Emoji,,0,0,0,,{{\\move(540,150,540,180,0,200)\\t(200,400,\\fscx120\\fscy120)\\t(400,600,\\fscx100\\fscy100)}}{emoji}\n"
-        
         # Process word-level subtitles
         total_subtitle_lines = 0
         total_words = 0

@@ -27,6 +27,17 @@ backend/clips/
 backend/test_videos/
 backend/ffmpeg.exe
 backend/ffmpeg
+backend/ffprobe.exe
+backend/ffprobe
+backend/ffplay.exe
+backend/ffplay
+
+# Log files
+*.log
+
+# Test scratch videos (not source assets)
+backend/test_*.mp4
+backend/test_*.wav
 
 # Node
 node_modules/
@@ -36,6 +47,9 @@ frontend/build/
 
 # YouTube cookies
 youtube_cookies*.txt
+
+# Claude Code local session files
+.claude/
 
 # IDE / OS
 .vscode/

@@ -540,18 +540,56 @@ async def cut_video_segment_enhanced(
     # ========== PASS 2: APPLY EFFECTS TO 0-BASED CLIP ==========
     print(f"  -> Pass 2: Apply effects (zoom, crop, subtitles) to 0-based clip")
     
+    # Probe video dimensions to clamp crop filter safely
+    import re
+    try:
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height", "-of", "csv=p=0",
+             str(temp_cut_file)],
+            capture_output=True, text=True
+        )
+        parts = probe.stdout.strip().split(",")
+        vid_width, vid_height = int(parts[0]), int(parts[1])
+        print(f"  [INFO] Video dimensions: {vid_width}x{vid_height}")
+    except Exception as e:
+        print(f"  [WARN] Could not probe video dimensions: {e}")
+        vid_width, vid_height = None, None
+
+    # Clamp crop_filter so it never exceeds actual video bounds
+    if crop_filter and vid_width and vid_height:
+        crop_match = re.search(r'crop=(\d+):(\d+):(\d+):(\d+)', crop_filter)
+        if crop_match:
+            cw, ch, cx, cy = [int(v) for v in crop_match.groups()]
+            cw = min(cw, vid_width)
+            ch = min(ch, vid_height)
+            # ensure even values for FFmpeg codecs
+            cw = (cw // 2) * 2
+            ch = (ch // 2) * 2
+            cx = max(0, min(cx, vid_width - cw))
+            cy = max(0, min(cy, vid_height - ch))
+            safe_crop = f"crop={cw}:{ch}:{cx}:{cy}"
+            if safe_crop != crop_filter.split("crop=", 1)[1][:len(safe_crop)]:
+                print(f"  [WARN] crop_filter adjusted: crop={crop_match.group(0)} → {safe_crop} (video {vid_width}x{vid_height})")
+            crop_filter = re.sub(r'crop=\d+:\d+:\d+:\d+', safe_crop, crop_filter)
+
     # Apply manual crop override if provided
     if manual_crop_x is not None and crop_filter:
         # Ensure manual_crop_x is even for FFmpeg
         manual_crop_x = (manual_crop_x // 2) * 2
-        
-        # Parse crop filter to extract current values
-        # Format: crop=width:height:x:y
-        import re
+
         crop_match = re.search(r'crop=(\d+):(\d+):(\d+):(\d+)', crop_filter)
         if crop_match:
             crop_w, crop_h, crop_x, crop_y = crop_match.groups()
-            # Replace with manual X position
+            crop_w_int = int(crop_w)
+
+            # Clamp X so crop doesn't go out of bounds
+            if vid_width:
+                clamped_x = max(0, min(manual_crop_x, vid_width - crop_w_int))
+                if clamped_x != manual_crop_x:
+                    print(f"  [WARN] manual_crop_x={manual_crop_x} clamped to {clamped_x} (video width={vid_width})")
+                manual_crop_x = clamped_x
+
             new_crop_filter = crop_filter.replace(
                 f'crop={crop_w}:{crop_h}:{crop_x}:{crop_y}',
                 f'crop={crop_w}:{crop_h}:{manual_crop_x}:{crop_y}'
@@ -660,11 +698,28 @@ async def cut_video_segment_enhanced(
                 f"zoompan=z='if(lte(on,{zoom_frames}),min(zoom+0.0017,1.05),1.05)'"
                 f":d=1:fps={fps_val}"
             )
-            stable_zoom = "scale=iw*1.1:ih*1.1,crop=iw/1.1:ih/1.1:(iw-iw/1.1)/2:(ih-ih/1.1)/2"
+            # Use trunc() to ensure integer pixel sizes and avoid mid-stream filter reinit errors
+            stable_zoom = (
+                "scale=trunc(iw*1.1/2)*2:trunc(ih*1.1/2)*2,"
+                "crop=trunc(iw/1.1/2)*2:trunc(ih/1.1/2)*2"
+                ":(iw-trunc(iw/1.1/2)*2)/2:(ih-trunc(ih/1.1/2)*2)/2"
+            )
             video_parts = [hook_zoom, stable_zoom]
             if crop_filter:
-                video_parts.append(crop_filter)
-                print(f"     • Crop: {crop_filter[:40]}...")
+                # Skip crop if it's a no-op (same dimensions as video, no offset)
+                crop_match_check = re.search(r'crop=(\d+):(\d+):(\d+):(\d+)', crop_filter)
+                is_noop = (
+                    crop_match_check and vid_width and vid_height
+                    and int(crop_match_check.group(1)) >= vid_width
+                    and int(crop_match_check.group(2)) >= vid_height
+                    and int(crop_match_check.group(3)) == 0
+                    and int(crop_match_check.group(4)) == 0
+                )
+                if is_noop:
+                    print(f"     • Crop: skipped (no-op for {vid_width}x{vid_height} video)")
+                else:
+                    video_parts.append(crop_filter)
+                    print(f"     • Crop: {crop_filter[:40]}...")
             video_parts.append("scale=1080:1920")
             if subtitle_path and subtitle_path.exists():
                 abs_subtitle_path = str(subtitle_path.resolve()).replace('\\', '/').replace(':', '\\:')
@@ -756,6 +811,8 @@ async def cut_video_segment_enhanced(
         # Cleanup temp file before raising error
         if temp_cut_file.exists():
             temp_cut_file.unlink()
+        print(f"FFmpeg stderr: {result_pass2.stderr.decode('utf-8', errors='replace') if isinstance(result_pass2.stderr, bytes) else str(result_pass2.stderr)}")
+        print(f"FFmpeg stdout: {result_pass2.stdout.decode('utf-8', errors='replace') if isinstance(result_pass2.stdout, bytes) else str(result_pass2.stdout)}")
         raise subprocess.CalledProcessError(result_pass2.returncode, cmd_pass2, result_pass2.stdout, result_pass2.stderr)
     
     print(f"  [OK] Pass 2 complete: Effects applied successfully")

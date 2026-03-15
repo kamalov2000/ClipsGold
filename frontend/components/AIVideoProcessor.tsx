@@ -99,7 +99,6 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
   const [successResult, setSuccessResult] = useState<{ clipIndex: number; downloadUrl: string; filename: string; title: string } | null>(null)
   const wsConnections = useRef<{[key: string]: WebSocket}>({})
   const [safeZoneOverlayVisible, setSafeZoneOverlayVisible] = useState(true)
-  const [showAIHook, setShowAIHook] = useState(true)
   // Cleanup WebSocket connections on unmount
   useEffect(() => {
     return () => {
@@ -229,7 +228,6 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
           manual_crop_x: manualCropX[clipIndex] !== null && manualCropX[clipIndex] !== undefined
             ? manualCropX[clipIndex]
             : null,
-          show_hook: showAIHook,
           subtitle_style: subtitleStyles[clipIndex] || 'hormozi',
           enable_jump_cut: enableJumpCut,
           enable_sfx: false,
@@ -618,12 +616,6 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
                   onChange={(e) => setSafeZoneOverlayVisible(e.target.checked)}
                   className="rounded border-gray-300 text-purple-600 focus:ring-purple-500" />
                 <span className="text-sm font-medium text-gray-600">Platform UI</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer shrink-0">
-                <input type="checkbox" checked={showAIHook}
-                  onChange={(e) => setShowAIHook(e.target.checked)}
-                  className="rounded border-gray-300 text-yellow-600 focus:ring-yellow-500" />
-                <span className="text-sm font-medium text-gray-600">AI Hook</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer shrink-0">
                 <input type="checkbox" checked={enableJumpCut}
