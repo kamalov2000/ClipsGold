@@ -103,6 +103,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     
     def escape_ass_text(self, text: str) -> str:
         """Escape special ASS characters"""
+        text = text.strip().lstrip('\u2014').lstrip('\u2013').lstrip('-').strip()
         text = text.replace('\\', '\\\\')
         text = text.replace('{', '\\{')
         text = text.replace('}', '\\}')
@@ -270,6 +271,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 word_dur = seg_dur / len(raw_words)
                 words = []
                 for wi, w in enumerate(raw_words):
+                    w = w.lstrip('\u2014').lstrip('\u2013').lstrip('-').strip()
+                    if not w:
+                        continue
                     words.append({
                         "word": " " + w,
                         "start": round(seg_start + wi * word_dur, 3),
