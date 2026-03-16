@@ -1,0 +1,50 @@
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]: ============================================================
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]: INFO:     Application startup complete.
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]: INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+Mar 16 10:37:01 ams-1-vm-hnpd uvicorn[81319]: INFO:     185.236.25.150:63317 - "POST /upload HTTP/1.1" 200 OK
+Mar 16 10:37:09 ams-1-vm-hnpd uvicorn[81319]: [transcription] Loading faster-whisper model 'medium' (int8, CPU)...
+Mar 16 10:37:10 ams-1-vm-hnpd uvicorn[81319]: HTTP Request: GET https://huggingface.co/api/models/Systran/faster-whisper-medium/revision/main "HTTP/1.1 200 OK"
+Mar 16 10:37:10 ams-1-vm-hnpd uvicorn[81319]: HTTP Request: HEAD https://huggingface.co/Systran/faster-whisper-medium/resolve/08e178d48790749d25932bbc082711ddcfdfbc4f/config.json "HTTP/1.1 307 Temporary Redirect"
+Mar 16 10:37:10 ams-1-vm-hnpd uvicorn[81319]: Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Mar 16 10:37:10 ams-1-vm-hnpd uvicorn[81319]: Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Mar 16 10:37:10 ams-1-vm-hnpd uvicorn[81319]: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Systran/faster-whisper-medium/08e178d48790749d25932bbc082711ddcfdfbc4f/config.json "HTTP/1.1 200 OK"
+Mar 16 10:37:10 ams-1-vm-hnpd uvicorn[81319]: HTTP Request: HEAD https://huggingface.co/Systran/faster-whisper-medium/resolve/08e178d48790749d25932bbc082711ddcfdfbc4f/vocabulary.txt "HTTP/1.1 307 Temporary Redirect"
+Mar 16 10:37:10 ams-1-vm-hnpd uvicorn[81319]: HTTP Request: HEAD https://huggingface.co/Systran/faster-whisper-medium/resolve/08e178d48790749d25932bbc082711ddcfdfbc4f/tokenizer.json "HTTP/1.1 307 Temporary Redirect"
+Mar 16 10:37:10 ams-1-vm-hnpd uvicorn[81319]: HTTP Request: HEAD https://huggingface.co/Systran/faster-whisper-medium/resolve/08e178d48790749d25932bbc082711ddcfdfbc4f/model.bin "HTTP/1.1 302 Found"
+Mar 16 10:37:10 ams-1-vm-hnpd uvicorn[81319]: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Systran/faster-whisper-medium/08e178d48790749d25932bbc082711ddcfdfbc4f/vocabulary.txt "HTTP/1.1 200 OK"
+Mar 16 10:37:10 ams-1-vm-hnpd uvicorn[81319]: HTTP Request: GET https://huggingface.co/api/resolve-cache/models/Systran/faster-whisper-medium/08e178d48790749d25932bbc082711ddcfdfbc4f/config.json "HTTP/1.1 200 OK"
+Mar 16 10:37:10 ams-1-vm-hnpd uvicorn[81319]: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Systran/faster-whisper-medium/08e178d48790749d25932bbc082711ddcfdfbc4f/tokenizer.json "HTTP/1.1 200 OK"
+Mar 16 10:37:10 ams-1-vm-hnpd uvicorn[81319]: HTTP Request: GET https://huggingface.co/api/resolve-cache/models/Systran/faster-whisper-medium/08e178d48790749d25932bbc082711ddcfdfbc4f/tokenizer.json "HTTP/1.1 200 OK"
+Mar 16 10:37:10 ams-1-vm-hnpd uvicorn[81319]: HTTP Request: GET https://huggingface.co/api/resolve-cache/models/Systran/faster-whisper-medium/08e178d48790749d25932bbc082711ddcfdfbc4f/vocabulary.txt "HTTP/1.1 200 OK"
+Mar 16 10:37:10 ams-1-vm-hnpd uvicorn[81319]: HTTP Request: GET https://huggingface.co/api/models/Systran/faster-whisper-medium/xet-read-token/08e178d48790749d25932bbc082711ddcfdfbc4f "HTTP/1.1 200 OK"
+Mar 16 10:37:34 ams-1-vm-hnpd uvicorn[81319]: [transcription] faster-whisper model loaded.
+Mar 16 10:37:35 ams-1-vm-hnpd uvicorn[81319]: Processing audio with duration 00:48.505
+Mar 16 10:37:35 ams-1-vm-hnpd uvicorn[81319]: VAD filter removed 00:00.000 of audio
+Mar 16 10:37:51 ams-1-vm-hnpd uvicorn[81319]: Detected language 'ru' with probability 1.00
+Mar 16 10:37:51 ams-1-vm-hnpd uvicorn[81319]: [transcription] Detected language: ru (p=1.00)
+Mar 16 10:39:50 ams-1-vm-hnpd uvicorn[81319]: [transcription] faster-whisper model unloaded.
+Mar 16 10:39:55 ams-1-vm-hnpd uvicorn[81319]: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+Mar 16 10:39:58 ams-1-vm-hnpd uvicorn[81319]: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+Mar 16 10:39:58 ams-1-vm-hnpd uvicorn[81319]:     [correction] Applied: 7 words, 0 marked filler
+Mar 16 10:39:58 ams-1-vm-hnpd uvicorn[81319]:     [correction] Applied: 7 words, 0 marked filler
+Mar 16 10:39:58 ams-1-vm-hnpd uvicorn[81319]:     [correction] Applied: 4 words, 0 marked filler
+Mar 16 10:39:58 ams-1-vm-hnpd uvicorn[81319]:     [correction] Applied: 7 words, 0 marked filler
+Mar 16 10:39:58 ams-1-vm-hnpd uvicorn[81319]:     [correction] Applied: 7 words, 0 marked filler
+Mar 16 10:39:58 ams-1-vm-hnpd uvicorn[81319]:     [correction] Applied: 5 words, 0 marked filler
+Mar 16 10:39:58 ams-1-vm-hnpd uvicorn[81319]:     [correction] Applied: 10 words, 0 marked filler
+Mar 16 10:39:58 ams-1-vm-hnpd uvicorn[81319]:     [correction] Applied: 11 words, 0 marked filler
+Mar 16 10:39:58 ams-1-vm-hnpd uvicorn[81319]:     [correction] Applied: 6 words, 0 marked filler
+Mar 16 10:39:58 ams-1-vm-hnpd uvicorn[81319]:     [correction] Applied: 11 words, 0 marked filler
+Mar 16 10:39:58 ams-1-vm-hnpd uvicorn[81319]:     [correction] Applied: 8 words, 0 marked filler
+Mar 16 10:39:58 ams-1-vm-hnpd uvicorn[81319]:     [correction] Applied: 5 words, 0 marked filler
+Mar 16 10:39:58 ams-1-vm-hnpd uvicorn[81319]:     [correction] Applied: 16 words, 0 marked filler
+Mar 16 10:39:58 ams-1-vm-hnpd uvicorn[81319]:     [correction] Applied: 6 words, 0 marked filler
+Mar 16 10:39:58 ams-1-vm-hnpd uvicorn[81319]:     [correction] Applied: 11 words, 0 marked filler
+Mar 16 10:39:58 ams-1-vm-hnpd uvicorn[81319]:     [correction] Applied: 12 words, 0 marked filler
+Mar 16 10:39:58 ams-1-vm-hnpd uvicorn[81319]:     [correction] Applied: 8 words, 1 marked filler
+Mar 16 10:39:58 ams-1-vm-hnpd uvicorn[81319]:     [correction] Applied: 5 words, 0 marked filler
+Mar 16 10:39:58 ams-1-vm-hnpd uvicorn[81319]:     [correction] Applied: 8 words, 0 marked filler
+Mar 16 10:39:58 ams-1-vm-hnpd uvicorn[81319]:     [correction] Applied: 7 words, 0 marked filler
+Mar 16 10:39:58 ams-1-vm-hnpd uvicorn[81319]:     [correction] Applied: 13 words, 0 marked filler
+Mar 16 10:39:58 ams-1-vm-hnpd uvicorn[81319]:     [correction] Applied: 5 words, 0 marked filler
+Mar 16 10:39:58 ams-1-vm-hnpd uvicorn[81319]: INFO:     185.236.25.150:59292 - "POST /transcribe/db5e6a8a-e3db-43f0-916b-f9445d233abf HTTP/1.1" 200 OK

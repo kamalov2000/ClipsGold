@@ -135,11 +135,10 @@ def run_ffmpeg_sync_with_progress(
 
     process.wait()
     if process.returncode != 0:
-        last_lines = stderr_output[-10:]
-        print(f"\n❌ FFmpeg FAILED (exit {process.returncode}) — last 10 stderr lines:")
-        for ln in last_lines:
+        print(f"\n❌ FFmpeg FAILED (exit {process.returncode}) — FULL stderr ({len(stderr_output)} lines):")
+        for ln in stderr_output:
             print(f"   {ln}")
-        _sentry_ffmpeg_breadcrumb(cmd, process.returncode, last_lines)
+        _sentry_ffmpeg_breadcrumb(cmd, process.returncode, stderr_output[-10:])
     if async_progress_callback:
         future = asyncio.run_coroutine_threadsafe(
             async_progress_callback(task_id, {"status": "complete", "progress": 100}),
@@ -225,11 +224,10 @@ async def run_ffmpeg_with_progress(
     await process.wait()
     
     if process.returncode != 0:
-        last_lines = stderr_output[-10:]
-        print(f"\n❌ FFmpeg FAILED (exit {process.returncode}) — last 10 stderr lines:")
-        for ln in last_lines:
+        print(f"\n❌ FFmpeg FAILED (exit {process.returncode}) — FULL stderr ({len(stderr_output)} lines):")
+        for ln in stderr_output:
             print(f"   {ln}")
-        _sentry_ffmpeg_breadcrumb(cmd, process.returncode, last_lines)
+        _sentry_ffmpeg_breadcrumb(cmd, process.returncode, stderr_output[-10:])
 
     # Send 100% completion
     if progress_callback:

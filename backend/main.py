@@ -11,11 +11,10 @@ from pathlib import Path
 import uuid
 import json
 from typing import Optional, List, Dict
-import whisper
 import yt_dlp
 from services.transcription import run_whisper_transcribe, INITIAL_PROMPT_TERMS
 from services.ai_engine import fix_transcript_with_openai, fix_segments_with_openai, _apply_corrected_segment_text
-from services.viral_scout import discover_viral_moments, get_semantic_subtitle_chunks
+from services.viral_scout import discover_viral_moments
 from dotenv import load_dotenv
 import asyncio
 import re
@@ -32,9 +31,8 @@ from services.observability import configure_logging, configure_sentry, Correlat
 from services.limiter import limiter, rate_limit_handler, LIMITS
 from services.ssrf_guard import validate_import_url, validate_resolved_ip, YDL_SSRF_OPTS
 from services.auth import get_current_user
-from services.bola import get_owned_video, check_render_quota
-from services.pipeline_upgrades import loudnorm_filter, get_safe_margin_v, get_hook_margin_v, check_lufs_compliance
-from db.session import get_db, create_tables
+from services.pipeline_upgrades import loudnorm_filter
+from db.session import create_tables
 from db.models import User
 from routers.auth import router as auth_router
 from routers.factory import router as factory_router
@@ -100,6 +98,8 @@ async def _render_worker():
                 enable_jump_cut=job.get("enable_jump_cut", False),
                 enable_sfx=job.get("enable_sfx", True),
                 use_semantic_chunking=job.get("use_semantic_chunking", True),
+                start_time_override=job.get("start_time_override"),
+                end_time_override=job.get("end_time_override"),
             )
             download_path = f"/download-clip/{job['file_id']}/{result['clip_id']}"
             await manager.send_progress(task_id, {
@@ -203,10 +203,6 @@ async def start_background_workers():
         print("  - 11:00 PM: Daily Report")
         print("\nManual API endpoints are still available for testing.")
         print("="*60 + "\n")
-        
-        # Note: Scheduler integration would go here
-        # For now, just log that autonomous mode is enabled
-        # Full scheduler requires additional setup (APScheduler, etc.)
 
 
 app.add_middleware(
@@ -283,19 +279,6 @@ def get_ffmpeg_path():
 def get_ffprobe_path():
     local_ffprobe = BASE_DIR / "ffprobe.exe"
     return str(local_ffprobe) if local_ffprobe.exists() else "ffprobe"
-
-def get_random_background_video() -> Optional[Path]:
-    """
-    Get a random background video from assets/background_videos.
-    Returns None if directory is empty (fallback to standard mode).
-    """
-    video_files = list(BACKGROUND_VIDEOS_DIR.glob("*.mp4"))
-    if not video_files:
-        return None
-    
-    import random
-    return random.choice(video_files)
-
 
 def check_background_videos():
     """
@@ -401,23 +384,6 @@ def extract_audio(video_path: Path, audio_path: Path):
             "-ac", "1",
             "-y",
             str(audio_path)
-        ],
-        capture_output=True,
-        check=True
-    )
-
-
-def cut_video_segment(input_path: Path, output_path: Path, start_time: float, end_time: float):
-    duration = end_time - start_time
-    subprocess.run(
-        [
-            get_ffmpeg_path(),
-            "-i", str(input_path),
-            "-ss", str(start_time),
-            "-t", str(duration),
-            "-c", "copy",
-            "-y",
-            str(output_path)
         ],
         capture_output=True,
         check=True
@@ -682,7 +648,7 @@ async def cut_video_segment_enhanced(
             rel_sub = str(subtitle_path.resolve()).replace('\\', '/').replace(':', '\\:') if subtitle_path and subtitle_path.exists() else None
             blur_filter = get_ffmpeg_blurred_background_filter("0:v", "blurred")
             # Main branch: scale to fit, pad to 1080x1920
-            main_branch = "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2"
+            main_branch = "crop=trunc(ih*9/16/2)*2:ih,scale=1080:1920"
             if rel_sub:
                 main_branch += f",subtitles={rel_sub}"
             filter_complex = f"[0:v]split[main][bg];[bg]scale=iw*2:ih*2,boxblur=20,scale=1080:1920:force_original_aspect_ratio=decrease,crop=1080:1920[bg];[main]{main_branch}[main];[bg][main]overlay=(W-w)/2:(H-h)/2[out]"
@@ -690,23 +656,10 @@ async def cut_video_segment_enhanced(
             cmd_pass2.extend(["-map", "[out]", "-map", "0:a"])
         else:
             print(f"     • STANDARD MODE: Using filter_complex")
-            # Build video filter chain
-            # Step 1: zoompan hook zoom on first 3 seconds (slow zoom-in 1.0->1.05)
-            fps_val = int(video_fps) if video_fps else 30
-            zoom_frames = fps_val * 3  # 3 seconds
-            hook_zoom = (
-                f"zoompan=z='if(lte(on,{zoom_frames}),min(zoom+0.0017,1.05),1.05)'"
-                f":d=1:fps={fps_val}"
-            )
-            # Use trunc() to ensure integer pixel sizes and avoid mid-stream filter reinit errors
-            stable_zoom = (
-                "scale=trunc(iw*1.1/2)*2:trunc(ih*1.1/2)*2,"
-                "crop=trunc(iw/1.1/2)*2:trunc(ih/1.1/2)*2"
-                ":(iw-trunc(iw/1.1/2)*2)/2:(ih-trunc(ih/1.1/2)*2)/2"
-            )
-            video_parts = [hook_zoom, stable_zoom]
+            # Build video filter chain: crop to 9:16 → scale to 1080x1920
+            video_parts = []
             if crop_filter:
-                # Skip crop if it's a no-op (same dimensions as video, no offset)
+                # Use AI face-centered crop from reframer (expected to produce 9:16 portrait)
                 crop_match_check = re.search(r'crop=(\d+):(\d+):(\d+):(\d+)', crop_filter)
                 is_noop = (
                     crop_match_check and vid_width and vid_height
@@ -719,7 +672,12 @@ async def cut_video_segment_enhanced(
                     print(f"     • Crop: skipped (no-op for {vid_width}x{vid_height} video)")
                 else:
                     video_parts.append(crop_filter)
-                    print(f"     • Crop: {crop_filter[:40]}...")
+                    print(f"     • Crop: {crop_filter[:60]}...")
+            else:
+                # Fallback: center-crop to 9:16 (works for 16:9, 4:3, 1:1, or any source)
+                # trunc(ih*9/16/2)*2 ensures even pixel width required by libx264
+                video_parts.append("crop=trunc(ih*9/16/2)*2:ih")
+                print(f"     • Crop: center-crop 9:16 fallback (crop=trunc(ih*9/16/2)*2:ih)")
             video_parts.append("scale=1080:1920")
             if subtitle_path and subtitle_path.exists():
                 abs_subtitle_path = str(subtitle_path.resolve()).replace('\\', '/').replace(':', '\\:')
@@ -729,7 +687,6 @@ async def cut_video_segment_enhanced(
             # Emoji overlays disabled: FFmpeg drawtext with emoji crashes on Ubuntu (exit code 234)
             
             video_chain = ",".join(video_parts)
-            print(f"     • Hook zoom: first 3s zoompan")
             print(f"     • Scale: 1080x1920")
 
             # ── Audio mastering chain ──────────────────────────────────
@@ -771,6 +728,21 @@ async def cut_video_segment_enhanced(
     cmd_pass2.extend(["-vsync", "cfr"])
     cmd_pass2.extend(["-y", str(output_path)])
     
+    # ── Subtitle file diagnostics before Pass 2 ──────────────────────────
+    if subtitle_path:
+        if subtitle_path.exists():
+            sub_size = subtitle_path.stat().st_size
+            print(f"  [SUB] Subtitle file: {subtitle_path} (size={sub_size} bytes)")
+            try:
+                sub_lines = subtitle_path.read_text(encoding="utf-8-sig", errors="replace").splitlines()
+                print(f"  [SUB] First 30 lines of subtitle file:")
+                for i, ln in enumerate(sub_lines[:30]):
+                    print(f"    {i+1:3d}: {ln}")
+            except Exception as _sub_e:
+                print(f"  [SUB] Could not read subtitle file: {_sub_e}")
+        else:
+            print(f"  [SUB] ⚠️  Subtitle file NOT FOUND: {subtitle_path}")
+
     # Run Pass 2 with progress tracking if task_id provided
     # On Windows, asyncio.create_subprocess_exec can raise NotImplementedError;
     # run FFmpeg in a thread with sync Popen and schedule progress on the main loop.
@@ -1523,6 +1495,8 @@ class RenderClipRequest(BaseModel):
     enable_jump_cut: bool = False  # Cut silences >1.5s
     enable_sfx: bool = True  # Mix in pop/whoosh SFX from assets/sfx/
     use_semantic_chunking: bool = True  # Use semantic chunking for subtitles
+    start_time: Optional[float] = None  # User-edited start time override (seconds)
+    end_time: Optional[float] = None  # User-edited end time override (seconds)
 
 
 @app.post("/extract-clips/{file_id}")
@@ -1650,13 +1624,10 @@ async def extract_viral_clips(
                 except Exception as e:
                     print(f"[FAIL] Subtitle generation failed for clip {idx + 1}: {e}")
             
-            # CRITICAL FIX 4: Generate continuous slow zoom (no sentence-based zoom for now)
-            # Continuous zoom will be applied in cut_video_segment_enhanced if zoom_filter is None
             zoom_filter = None
             clip_duration = clip["end_time"] - clip["start_time"]
             print(f"  -> Continuous slow zoom will be applied (1.0->1.1 over {clip_duration:.1f}s)")
             
-            # CRITICAL FIX 2: Process video with COMPLETELY NEW FFmpeg command for THIS clip
             try:
                 print(f"\n-> Processing Clip {idx + 1}/{len(viral_clips)}: {clip['title'][:40]}...")
                 print(f"  -> Time range: {clip['start_time']:.1f}s - {clip['end_time']:.1f}s")
@@ -1805,6 +1776,8 @@ async def render_clip_with_progress(
             "enable_jump_cut": request.enable_jump_cut,
             "enable_sfx": request.enable_sfx,
             "use_semantic_chunking": request.use_semantic_chunking,
+            "start_time_override": request.start_time,
+            "end_time_override": request.end_time,
         }
         print(f"  -> Queueing job with task_id={task_id}")
         await render_queue.put(job)
@@ -1833,7 +1806,7 @@ async def cleanup_files(
     files_deleted = []
     
     # Cleanup main directories
-    for directory in [UPLOAD_DIR, OUTPUT_DIR, CLIPS_DIR, THUMBNAIL_DIR]:
+    for directory in [UPLOAD_DIR, OUTPUT_DIR, CLIPS_DIR, THUMBNAILS_DIR]:
         for file_path in directory.glob(f"{file_id}*"):
             try:
                 file_path.unlink()

@@ -1,0 +1,11 @@
+Name: faster-whisper
+Version: 1.2.1
+Summary: Faster Whisper transcription with CTranslate2
+Home-page: https://github.com/SYSTRAN/faster-whisper
+Author: Guillaume Klein
+Author-email: 
+License: MIT
+Location: /opt/ClipsGold/backend/venv/lib/python3.12/site-packages
+Requires: av, ctranslate2, huggingface-hub, onnxruntime, tokenizers, tqdm
+Required-by: 
+rc=0

@@ -195,14 +195,6 @@ def get_hook_margin_v(platform: str, play_res_y: int = PLAY_RES_Y) -> int:
     return int(play_res_y * zone["hook_pos"]) + 16
 
 
-def get_subtitle_position(platform: str, play_res_y: int = PLAY_RES_Y) -> Tuple[int, int]:
-    """
-    Returns (margin_v_bottom, hook_margin_top) for a given platform.
-    Use in subtitle_generator_v2._build_style_template().
-    """
-    return get_safe_margin_v(platform, play_res_y), get_hook_margin_v(platform, play_res_y)
-
-
 # ─────────────────────────────────────────────────────────────
 # 3. Filler Word Removal
 # ─────────────────────────────────────────────────────────────

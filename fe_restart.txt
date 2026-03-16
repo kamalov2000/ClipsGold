@@ -1,0 +1,5 @@
+Mar 16 11:48:29 ams-1-vm-hnpd systemd[1]: clipsgold-frontend.service: Consumed 1.561s CPU time.
+Mar 16 11:48:29 ams-1-vm-hnpd systemd[1]: Started clipsgold-frontend.service - ClipsGold Frontend.
+Mar 16 11:48:29 ams-1-vm-hnpd node[86699]:    ▲ Next.js 14.1.0
+Mar 16 11:48:29 ams-1-vm-hnpd node[86699]:    - Local:        http://localhost:3000
+Mar 16 11:48:30 ams-1-vm-hnpd node[86699]:  ✓ Ready in 730ms

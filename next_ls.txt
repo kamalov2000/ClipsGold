@@ -1,0 +1,10 @@
+total 36
+drwxr-xr-x 5 root root 4096 Mar 16 11:21 .
+drwxr-xr-x 7 root root 4096 Mar 15 22:18 ..
+drwxr-xr-x 4 root root 4096 Mar 15 19:37 cache
+-rw-r--r-- 1 root root   20 Mar 16 11:21 package.json
+-rw-r--r-- 1 root root  291 Mar 16 11:21 prerender-manifest.js
+-rw-r--r-- 1 root root  992 Mar 16 11:21 routes-manifest.json
+drwxr-xr-x 5 root root 4096 Mar 16 11:21 server
+-rw-r--r-- 1 root root 1866 Mar 16 11:21 trace
+drwxr-xr-x 3 root root 4096 Mar 16 11:21 types

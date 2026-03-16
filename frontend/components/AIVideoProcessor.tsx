@@ -70,6 +70,7 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
   const [candidates, setCandidates] = useState<Candidate[]>([])
   const [renderingClips, setRenderingClips] = useState<Set<number>>(new Set())
   const [renderedClips, setRenderedClips] = useState<ViralClip[]>([])
+  const [downloadingClips, setDownloadingClips] = useState<Set<number>>(new Set())
   const [error, setError] = useState<string | null>(null)
   const provider = 'openai'
   const [targetPlatform, setTargetPlatform] = useState<'tiktok' | 'youtube' | 'instagram'>('tiktok')
@@ -88,6 +89,9 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
 
   // Jump-cut toggle (global)
   const [enableJumpCut, setEnableJumpCut] = useState(false)
+
+  // Editable timecodes per candidate (overrides GPT values when rendering)
+  const [clipTimecodes, setClipTimecodes] = useState<{[key: number]: { start: string; end: string } }>({})
 
   // Clip social metadata
   const [clipMeta, setClipMeta] = useState<{[key: number]: { title: string; description: string; hashtags: string[]; cta: string }}>({})
@@ -218,12 +222,21 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
     setRenderStatus(prev => ({ ...prev, [clipIndex]: 'starting' }))
     setError(null)
 
+    const tc = clipTimecodes[clipIndex]
+    const candidate = candidates[clipIndex]
+    const startOverride = tc ? parseTime(tc.start) : null
+    const endOverride = tc ? parseTime(tc.end) : null
+    const effectiveStart = startOverride !== null ? startOverride : candidate?.start_time
+    const effectiveEnd = endOverride !== null ? endOverride : candidate?.end_time
+
     try {
       const response = await api.post(
         `/render-clip`,
         {
           file_id: fileId,
           clip_index: clipIndex,
+          start_time: effectiveStart,
+          end_time: effectiveEnd,
           platform: targetPlatform,
           manual_crop_x: manualCropX[clipIndex] !== null && manualCropX[clipIndex] !== undefined
             ? manualCropX[clipIndex]
@@ -339,7 +352,9 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
     }
   }
 
-  const handleDownloadClip = async (clipId: number, downloadUrl?: string) => {
+  const handleDownloadClip = async (clipId: number, downloadUrl?: string, candidateIndex?: number) => {
+    const idx = candidateIndex ?? clipId
+    setDownloadingClips(prev => new Set(prev).add(idx))
     try {
       const url = downloadUrl
         ? `${API_BASE}${downloadUrl}`
@@ -356,7 +371,16 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
       window.URL.revokeObjectURL(blobUrl)
     } catch (err: any) {
       setError('Download failed - clip may still be rendering')
+    } finally {
+      setDownloadingClips(prev => { const s = new Set(prev); s.delete(idx); return s })
     }
+  }
+
+  const handleRerender = (index: number) => {
+    setRenderedClips(prev => prev.filter((c: any) => c.candidateIndex !== index))
+    setRenderingClips(prev => { const s = new Set(prev); s.delete(index); return s })
+    setRenderProgress(prev => { const n = { ...prev }; delete n[index]; return n })
+    setRenderStatus(prev => { const n = { ...prev }; delete n[index]; return n })
   }
 
   const handleBackToEditor = () => {
@@ -399,6 +423,30 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
     const mins = Math.floor(seconds / 60)
     const secs = Math.floor(seconds % 60)
     return `${mins}:${secs.toString().padStart(2, '0')}`
+  }
+
+  const parseTime = (value: string): number | null => {
+    const parts = value.trim().split(':')
+    if (parts.length === 2) {
+      const m = parseInt(parts[0])
+      const s = parseInt(parts[1])
+      if (!isNaN(m) && !isNaN(s) && s >= 0 && s < 60) return m * 60 + s
+    } else if (parts.length === 1) {
+      const s = parseInt(parts[0])
+      if (!isNaN(s)) return s
+    }
+    return null
+  }
+
+  const getCandidateText = (candidate: Candidate, index: number): string => {
+    const tc = clipTimecodes[index]
+    const start = (tc ? parseTime(tc.start) : null) ?? candidate.start_time
+    const end = (tc ? parseTime(tc.end) : null) ?? candidate.end_time
+    return segments
+      .filter(seg => seg.end > start && seg.start < end)
+      .map(seg => (seg.text || '').trim())
+      .filter(Boolean)
+      .join(' ')
   }
 
   const copyDescription = async (candidate: Candidate, index: number) => {
@@ -670,12 +718,38 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
                         <Zap className="w-3 h-3" />
                         {candidate.virality_score}/10
                       </span>
-                      <span className="text-sm text-gray-600 font-medium">
-                        {formatTime(candidate.start_time)} - {formatTime(candidate.end_time)}
-                      </span>
-                      <span className="text-xs text-gray-500">
-                        ({Math.round(candidate.end_time - candidate.start_time)}s)
-                      </span>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="text"
+                          value={clipTimecodes[index]?.start ?? formatTime(candidate.start_time)}
+                          onChange={(e) => setClipTimecodes(prev => ({
+                            ...prev,
+                            [index]: { start: e.target.value, end: prev[index]?.end ?? formatTime(candidate.end_time) }
+                          }))}
+                          className="w-14 text-xs text-center border border-gray-300 rounded px-1 py-0.5 font-mono focus:border-purple-400 focus:ring-1 focus:ring-purple-300 bg-white"
+                          placeholder="0:00"
+                          title="Start time (M:SS)"
+                        />
+                        <span className="text-gray-400 text-xs">–</span>
+                        <input
+                          type="text"
+                          value={clipTimecodes[index]?.end ?? formatTime(candidate.end_time)}
+                          onChange={(e) => setClipTimecodes(prev => ({
+                            ...prev,
+                            [index]: { start: prev[index]?.start ?? formatTime(candidate.start_time), end: e.target.value }
+                          }))}
+                          className="w-14 text-xs text-center border border-gray-300 rounded px-1 py-0.5 font-mono focus:border-purple-400 focus:ring-1 focus:ring-purple-300 bg-white"
+                          placeholder="0:00"
+                          title="End time (M:SS)"
+                        />
+                        <span className="text-xs text-gray-400">
+                          ({Math.round(
+                            (clipTimecodes[index]
+                              ? (parseTime(clipTimecodes[index].end) ?? candidate.end_time) - (parseTime(clipTimecodes[index].start) ?? candidate.start_time)
+                              : candidate.end_time - candidate.start_time)
+                          )}s)
+                        </span>
+                      </div>
                       {/* Subtitle style selector */}
                       <select
                         value={subtitleStyles[index] || 'hormozi'}
@@ -1229,6 +1303,15 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
                       <p className="text-xs font-semibold text-gray-500 mb-1">Why This Will Go Viral:</p>
                       <p className="text-sm text-gray-700 leading-relaxed">{candidate.reason}</p>
                     </div>
+                    {segments.length > 0 && (() => {
+                      const text = getCandidateText(candidate, index)
+                      return text ? (
+                        <div className="mb-3 p-2 bg-white border border-gray-200 rounded-lg">
+                          <p className="text-xs font-semibold text-gray-400 mb-1">📝 Transcript:</p>
+                          <p className="text-xs text-gray-600 leading-relaxed">{text}</p>
+                        </div>
+                      ) : null
+                    })()}
                   </div>
                   <div className="ml-4 flex flex-col gap-2 min-w-[200px]">
                     {!renderedClip ? (
@@ -1282,13 +1365,32 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
                         )}
                       </>
                     ) : (
-                      <button
-                        onClick={() => handleDownloadClip(renderedClip.clip_id, renderedClip.downloadUrl)}
-                        className="px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-700 hover:to-emerald-700 transition-colors flex items-center gap-2 whitespace-nowrap shadow-lg"
-                      >
-                        <Download className="w-4 h-4" />
-                        Download
-                      </button>
+                      <div className="flex flex-col gap-2">
+                        <button
+                          onClick={() => handleDownloadClip(renderedClip.clip_id, renderedClip.downloadUrl, index)}
+                          disabled={downloadingClips.has(index)}
+                          className="px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-700 hover:to-emerald-700 transition-colors flex items-center gap-2 whitespace-nowrap shadow-lg disabled:opacity-70 disabled:cursor-not-allowed"
+                        >
+                          {downloadingClips.has(index) ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Скачивается...
+                            </>
+                          ) : (
+                            <>
+                              <Download className="w-4 h-4" />
+                              Download
+                            </>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => handleRerender(index)}
+                          className="px-4 py-2 bg-white border border-purple-300 text-purple-700 text-xs font-semibold rounded-lg hover:bg-purple-50 transition-colors flex items-center gap-1.5 whitespace-nowrap"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          Re-render
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>

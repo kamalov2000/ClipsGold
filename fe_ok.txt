@@ -1,0 +1,10 @@
+Mar 16 11:27:02 ams-1-vm-hnpd node[85331]:    ▲ Next.js 14.1.0
+Mar 16 11:27:02 ams-1-vm-hnpd node[85331]:    - Local:        http://localhost:3000
+Mar 16 11:27:02 ams-1-vm-hnpd node[85331]:  ✓ Ready in 689ms
+Mar 16 11:30:15 ams-1-vm-hnpd systemd[1]: Stopping clipsgold-frontend.service - ClipsGold Frontend...
+Mar 16 11:30:16 ams-1-vm-hnpd systemd[1]: clipsgold-frontend.service: Deactivated successfully.
+Mar 16 11:30:16 ams-1-vm-hnpd systemd[1]: Stopped clipsgold-frontend.service - ClipsGold Frontend.
+Mar 16 11:30:16 ams-1-vm-hnpd systemd[1]: Started clipsgold-frontend.service - ClipsGold Frontend.
+Mar 16 11:30:16 ams-1-vm-hnpd node[85520]:    ▲ Next.js 14.1.0
+Mar 16 11:30:16 ams-1-vm-hnpd node[85520]:    - Local:        http://localhost:3000
+Mar 16 11:30:16 ams-1-vm-hnpd node[85520]:  ✓ Ready in 611ms

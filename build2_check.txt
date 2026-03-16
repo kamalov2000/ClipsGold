@@ -1,0 +1,33 @@
+
+> video-processing-frontend@0.1.0 build
+> next build
+
+   ▲ Next.js 14.1.0
+   - Environments: .env.local
+
+   Creating an optimized production build ...
+Failed to compile.
+
+./components/AIVideoProcessor.tsx
+Error: 
+  [31mx[0m Expected ']', got ':'
+    ,-[[36;1;4m/opt/ClipsGold/frontend/components/AIVideoProcessor.tsx[0m:90:1]
+ [2m90[0m |   const [enableJumpCut, setEnableJumpCut] = useState(false)
+ [2m91[0m | 
+ [2m92[0m |   // Editable timecodes per candidate (overrides GPT values when rendering)
+ [2m93[0m |   const [clipTimecodes, setClipTimecodes] = useState<{[key: number]: { start: string; end: string }>>({})
+    : [31;1m                                                          ^[0m
+ [2m94[0m | 
+ [2m95[0m |   // Clip social metadata
+ [2m96[0m |   const [clipMeta, setClipMeta] = useState<{[key: number]: { title: string; description: string; hashtags: string[]; cta: string }}>({})
+    `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/AIVideoProcessor.tsx
+./app/page.tsx
+
+
+> Build failed because of webpack errors

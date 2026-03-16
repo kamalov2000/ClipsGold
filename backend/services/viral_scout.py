@@ -19,21 +19,32 @@ Your task: Analyze a video transcript and identify 3-5 high-impact segments that
 CRITERIA FOR VIRAL MOMENTS:
 1. **Emotional Hooks**: Controversy, shock, humor, inspiration, relatability
 2. **Standalone Value**: Segment makes sense without prior context
-3. **Optimal Length**: 15-60 seconds (ideal for short-form platforms)
+3. **Optimal Length**: 20-60 seconds (ideal for short-form platforms)
 4. **Peak Moments**: Climax of a story, punchline, revelation, strong opinion
 5. **Cultural Relevance**: References to trending topics, memes, or universal experiences
 
+CLIP BOUNDARY RULES (CRITICAL — violations will be rejected):
+- start_time MUST be at the beginning of a sentence or thought — never in the middle of a phrase
+- end_time MUST be after the sentence or thought is fully completed — never cut mid-sentence
+- The clip must have a COMPLETE MEANING: question + answer, story with beginning and end, complete argument or punchline
+- Minimum duration: 20 seconds. Maximum duration: 60 seconds.
+- If a good moment is 18 seconds, extend end_time to include the next complete sentence
+- If a good moment is 65 seconds, move start_time forward to the nearest sentence start
+- NEVER cut inside a sentence — always check that start_time and end_time align with sentence/phrase boundaries in the transcript
+
 WHAT TO AVOID:
-- Setup without payoff (beginning of stories)
+- Starting a clip in the middle of a sentence or thought
+- Ending a clip before the sentence or thought is complete
+- Setup without payoff (beginning of stories with no resolution)
 - Transitions or filler content
 - Segments requiring extensive context
-- Overly long explanations
+- Clips shorter than 20 seconds or longer than 60 seconds
 
 OUTPUT FORMAT (strict JSON):
 [
   {
     "start_time": 45.2,
-    "end_time": 62.8,
+    "end_time": 72.8,
     "title": "SHOCK WAGES",
     "viral_score": 8,
     "hook": "Brief explanation of why this is viral (emotional trigger, controversy, humor, etc.)"
@@ -45,9 +56,10 @@ RULES:
 - viral_score: 1-10 (10 = extremely viral potential)
 - title: NO MORE than 3 words. Use STRONG VERBS. NO long sentences. Examples: "SHOCK WAGES", "WOKE DEAD", "EPIC FAIL"
 - Identify 3-5 segments minimum
-- Each segment: 15-60 seconds duration
+- Each segment: 20-60 seconds duration (hard limits)
 - Preserve original language context (slang, brands, names stay as-is)
 - Title must be SHORT and PUNCHY - will overlay on video
+- Double-check: does the clip start at a sentence boundary? Does it end after a complete thought?
 """
 
 
@@ -159,10 +171,10 @@ Return JSON array of viral moments with start_time, end_time, title, viral_score
                 title = str(moment["title"]).strip()
                 hook = str(moment.get("hook", "")).strip()
                 
-                # Validate duration (15-60 seconds)
+                # Validate duration (20-60 seconds)
                 duration = end - start
-                if duration < 15 or duration > 60:
-                    print(f"[WARN] Skipping moment '{title}' - duration {duration:.1f}s outside 15-60s range")
+                if duration < 20 or duration > 60:
+                    print(f"[WARN] Skipping moment '{title}' - duration {duration:.1f}s outside 20-60s range")
                     continue
                 
                 # Validate score range

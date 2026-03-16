@@ -77,6 +77,8 @@ async def render_single_clip_with_progress(
     enable_jump_cut: bool = False,
     enable_sfx: bool = True,
     use_semantic_chunking: bool = True,
+    start_time_override: Optional[float] = None,
+    end_time_override: Optional[float] = None,
 ):
     """
     Render a single clip with WebSocket progress tracking.
@@ -106,7 +108,13 @@ async def render_single_clip_with_progress(
     if clip_index >= len(candidates):
         raise HTTPException(status_code=404, detail="Clip index out of range")
     
-    clip = candidates[clip_index]
+    clip = dict(candidates[clip_index])  # shallow copy so we don't mutate the store
+    if start_time_override is not None:
+        print(f"  -> start_time override: {clip['start_time']} -> {start_time_override}")
+        clip["start_time"] = start_time_override
+    if end_time_override is not None:
+        print(f"  -> end_time override: {clip['end_time']} -> {end_time_override}")
+        clip["end_time"] = end_time_override
     
     # Get input file
     input_file = UPLOAD_DIR / f"{file_id}.mp4"

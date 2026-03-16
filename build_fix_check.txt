@@ -1,0 +1,34 @@
+
+> video-processing-frontend@0.1.0 build
+> next build
+
+   ▲ Next.js 14.1.0
+   - Environments: .env.local
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully
+   Skipping validation of types
+   Linting ...
+   Collecting page data ...
+   Generating static pages (0/5) ...
+   Generating static pages (1/5) 
+   Generating static pages (2/5) 
+   Generating static pages (3/5) 
+ ✓ Generating static pages (5/5) 
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                              Size     First Load JS
+┌ ○ /                                    12.9 kB         119 kB
+├ ○ /_not-found                          882 B          85.1 kB
+├ λ /candidates/[fileId]                 2.52 kB         108 kB
+└ ○ /factory                             3.1 kB          109 kB
++ First Load JS shared by all            84.2 kB
+  ├ chunks/69-6340d348c2cda765.js        28.9 kB
+  ├ chunks/fd9d1056-d4fcaf2c7d32ab18.js  53.4 kB
+  └ other shared chunks (total)          1.93 kB
+
+
+○  (Static)   prerendered as static content
+λ  (Dynamic)  server-rendered on demand using Node.js
+

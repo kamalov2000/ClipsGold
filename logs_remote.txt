@@ -1,0 +1,30 @@
+Mar 16 10:34:07 ams-1-vm-hnpd uvicorn[81319]:    Version: 0.10.32
+Mar 16 10:34:07 ams-1-vm-hnpd uvicorn[81319]: MediaPipe tasks API loaded successfully
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]: ============================================================
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]: PYTHON ENVIRONMENT CHECK
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]: ============================================================
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]: Python Version: 3.12.3 (main, Mar  3 2026, 12:15:18) [GCC 13.3.0]
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]: Python Executable: /opt/ClipsGold/backend/venv/bin/python3.12
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]: Sys.path (first 3 entries):
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]:   [0]
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]:   [1] /opt/ClipsGold/backend/venv/bin
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]:   [2] /usr/lib/python312.zip
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]: [WARN] Not running in venv312! Check your activation.
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]: ============================================================
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]: INFO:     Started server process [81319]
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]: INFO:     Waiting for application startup.
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]: {"event": "db_tables_created", "request_id": null, "user_id": null, "job_id": null, "timestamp": "2026-03-16T10:34:09.074715Z", "level": "info", "logger": "main"}
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]: {"event": "render_worker_started", "request_id": null, "user_id": null, "job_id": null, "timestamp": "2026-03-16T10:34:09.075261Z", "level": "info", "logger": "main"}
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]: {"event": "cleanup_worker_started", "request_id": null, "user_id": null, "job_id": null, "timestamp": "2026-03-16T10:34:09.075359Z", "level": "info", "logger": "main"}
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]: {"event": "AUTONOMOUS_MODE enabled - starting AI Factory scheduler...", "request_id": null, "user_id": null, "job_id": null, "timestamp": "2026-03-16T10:34:09.075447Z", "level": "info", "logger": "main"}
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]: ============================================================
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]: AUTONOMOUS AI FACTORY - HEADLESS MODE
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]: ============================================================
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]: Scheduler will run automatically:
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]:   - 6:00 AM: Trend Scout (discover videos)
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]:   - 9:00 AM, 3:00 PM, 9:00 PM: Factory Cycle (process queue)
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]:   - 11:00 PM: Daily Report
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]: Manual API endpoints are still available for testing.
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]: ============================================================
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]: INFO:     Application startup complete.
+Mar 16 10:34:09 ams-1-vm-hnpd uvicorn[81319]: INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)

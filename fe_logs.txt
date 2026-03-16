@@ -1,0 +1,20 @@
+Mar 16 11:20:08 ams-1-vm-hnpd node[83572]: }
+Mar 16 11:20:08 ams-1-vm-hnpd systemd[1]: clipsgold-frontend.service: Main process exited, code=exited, status=1/FAILURE
+Mar 16 11:20:08 ams-1-vm-hnpd systemd[1]: clipsgold-frontend.service: Failed with result 'exit-code'.
+Mar 16 11:20:18 ams-1-vm-hnpd systemd[1]: clipsgold-frontend.service: Scheduled restart job, restart counter is at 13.
+Mar 16 11:20:18 ams-1-vm-hnpd systemd[1]: Started clipsgold-frontend.service - ClipsGold Frontend.
+Mar 16 11:20:19 ams-1-vm-hnpd node[83592]:    ▲ Next.js 14.1.0
+Mar 16 11:20:19 ams-1-vm-hnpd node[83592]:    - Local:        http://localhost:3000
+Mar 16 11:20:19 ams-1-vm-hnpd node[83592]: Error: ENOENT: no such file or directory, open '/opt/ClipsGold/frontend/.next/BUILD_ID'
+Mar 16 11:20:19 ams-1-vm-hnpd node[83592]:     at async open (node:internal/fs/promises:634:25)
+Mar 16 11:20:19 ams-1-vm-hnpd node[83592]:     at async Object.readFile (node:internal/fs/promises:1236:14)
+Mar 16 11:20:19 ams-1-vm-hnpd node[83592]:     at async setupFsCheck (/opt/ClipsGold/frontend/node_modules/next/dist/server/lib/router-utils/filesystem.js:145:19)
+Mar 16 11:20:19 ams-1-vm-hnpd node[83592]:     at async initialize (/opt/ClipsGold/frontend/node_modules/next/dist/server/lib/router-server.js:58:23)
+Mar 16 11:20:19 ams-1-vm-hnpd node[83592]:     at async Server.<anonymous> (/opt/ClipsGold/frontend/node_modules/next/dist/server/lib/start-server.js:246:36) {
+Mar 16 11:20:19 ams-1-vm-hnpd node[83592]:   errno: -2,
+Mar 16 11:20:19 ams-1-vm-hnpd node[83592]:   code: 'ENOENT',
+Mar 16 11:20:19 ams-1-vm-hnpd node[83592]:   syscall: 'open',
+Mar 16 11:20:19 ams-1-vm-hnpd node[83592]:   path: '/opt/ClipsGold/frontend/.next/BUILD_ID'
+Mar 16 11:20:19 ams-1-vm-hnpd node[83592]: }
+Mar 16 11:20:19 ams-1-vm-hnpd systemd[1]: clipsgold-frontend.service: Main process exited, code=exited, status=1/FAILURE
+Mar 16 11:20:19 ams-1-vm-hnpd systemd[1]: clipsgold-frontend.service: Failed with result 'exit-code'.

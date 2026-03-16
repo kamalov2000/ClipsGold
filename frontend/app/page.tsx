@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import VideoUploader from '@/components/VideoUploader'
 import AIVideoProcessor from '@/components/AIVideoProcessor'
 import AuthForm from '@/components/AuthForm'
-import { getToken, clearToken } from '@/lib/api'
+import { clearToken } from '@/lib/api'
 
 export default function Home() {
   const [fileId, setFileId] = useState<string | null>(null)
