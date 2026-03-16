@@ -74,7 +74,7 @@ def apply_word_corrections(segments: list) -> None:
                 corrected_words.append(f"{raw.strip()} -> {w['word'].strip()}")
         if corrected_words:
             print(f"    [word fix] {', '.join(corrected_words)}")
-        seg["text"] = "".join(w.get("word", "") for w in seg.get("words", []))
+            seg["text"] = "".join(w.get("word", "") for w in seg.get("words", []))
 
 
 def _api_response_to_dict(resp, time_offset: float = 0.0, seg_id_offset: int = 0) -> dict:

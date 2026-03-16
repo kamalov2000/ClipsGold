@@ -222,6 +222,21 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
     setRenderStatus(prev => ({ ...prev, [clipIndex]: 'starting' }))
     setError(null)
 
+    // Auto-save subtitle edits before rendering so the server uses current text
+    if (subtitleEditDirty && segments.length > 0) {
+      try {
+        setRenderStatus(prev => ({ ...prev, [clipIndex]: 'saving subtitles…' }))
+        const resp = await api.patch(`/transcription/${fileId}`, {
+          segments: segments.map((seg, i) => ({ index: i, text: (seg.text || '').trim() }))
+        })
+        setTranscription(resp.data.text)
+        setSegments(resp.data.segments || segments)
+        setSubtitleEditDirty(false)
+      } catch {
+        // Non-fatal: proceed with render even if subtitle save fails
+      }
+    }
+
     const tc = clipTimecodes[clipIndex]
     const candidate = candidates[clipIndex]
     const startOverride = tc ? parseTime(tc.start) : null
