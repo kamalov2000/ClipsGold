@@ -10,13 +10,12 @@ export const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000'
 
 export const api = axios.create({ baseURL: API_BASE })
 
-// TODO: Re-enable auth - commented out for development
 api.interceptors.request.use((config) => {
-  // const token = localStorage.getItem('cg_access_token')
-  // if (token) {
-  //   config.headers = config.headers ?? {}
-  //   config.headers['Authorization'] = `Bearer ${token}`
-  // }
+  const token = localStorage.getItem('cg_access_token')
+  if (token) {
+    config.headers = config.headers ?? {}
+    config.headers['Authorization'] = `Bearer ${token}`
+  }
   return config
 })
 

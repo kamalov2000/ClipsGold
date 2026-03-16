@@ -32,6 +32,10 @@ from services.limiter import limiter, rate_limit_handler, LIMITS
 from services.ssrf_guard import validate_import_url, validate_resolved_ip, YDL_SSRF_OPTS
 from services.auth import get_current_user
 from services.pipeline_upgrades import loudnorm_filter
+from jose import jwt as _jose_jwt, JWTError as _JWTError
+import hmac as _hmac
+import hashlib as _hashlib
+from datetime import datetime as _datetime, timedelta as _timedelta
 from db.session import create_tables
 from db.models import User
 from routers.auth import router as auth_router
@@ -39,6 +43,44 @@ from routers.factory import router as factory_router
 
 configure_logging()
 log = get_logger(__name__)
+
+# ── Simple single-account auth ────────────────────────────────
+# Credentials read from env; fall back to safe defaults shown below.
+_ADMIN_EMAIL    = os.getenv("ADMIN_EMAIL",    "admin@clipsgold.io")
+_ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "ClipsGold2024!")
+_SIMPLE_JWT_SECRET = os.getenv("JWT_SECRET_KEY", "clipsgold-simple-jwt-secret-change-me")
+_SIMPLE_JWT_ALG    = "HS256"
+_SIMPLE_JWT_EXPIRE_HOURS = 24 * 30  # 30 days
+
+
+class _SimpleLoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class _SimpleTokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+def _make_simple_token(email: str) -> str:
+    expire = _datetime.utcnow() + _timedelta(hours=_SIMPLE_JWT_EXPIRE_HOURS)
+    return _jose_jwt.encode(
+        {"sub": email, "exp": expire, "type": "simple"},
+        _SIMPLE_JWT_SECRET,
+        algorithm=_SIMPLE_JWT_ALG,
+    )
+
+
+def _verify_simple_token(token: str) -> str:
+    """Decode token and return email, or raise HTTPException 401."""
+    try:
+        payload = _jose_jwt.decode(token, _SIMPLE_JWT_SECRET, algorithms=[_SIMPLE_JWT_ALG])
+        if payload.get("type") != "simple":
+            raise _JWTError("wrong type")
+        return payload["sub"]
+    except _JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired token.")
 
 # In-memory storage for clip candidates (Human-in-the-Loop architecture)
 clip_candidates_store: Dict[str, List[Dict]] = {}
@@ -797,6 +839,29 @@ async def cut_video_segment_enhanced(
     print(f"  === TWO-PASS COMPLETE [OK] ===")
 
 
+@app.post("/auth/simple-login", response_model=_SimpleTokenResponse)
+async def simple_login(body: _SimpleLoginRequest):
+    """Single hardcoded account login — no DB required."""
+    email_ok = _hmac.compare_digest(body.email.lower().strip(), _ADMIN_EMAIL.lower())
+    pass_ok  = _hmac.compare_digest(body.password, _ADMIN_PASSWORD)
+    if not email_ok or not pass_ok:
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+    token = _make_simple_token(_ADMIN_EMAIL)
+    log.info("simple_login_success", email=_ADMIN_EMAIL)
+    return _SimpleTokenResponse(access_token=token)
+
+
+@app.get("/auth/me")
+async def simple_me(request: Request):
+    """Verify Bearer token and return email. Used by frontend on page load."""
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing token.")
+    token = auth_header[7:]
+    email = _verify_simple_token(token)
+    return {"email": email}
+
+
 @app.websocket("/ws/render-progress/{task_id}")
 async def websocket_render_progress(websocket: WebSocket, task_id: str):
     """
@@ -1182,14 +1247,14 @@ async def transcribe_video(
                     True,
                     INITIAL_PROMPT_TERMS,
                 ),
-                timeout=300,
+                timeout=1800,  # 30 min — CPU int8 transcription ~1-3x realtime
             )
         except asyncio.TimeoutError:
             if audio_file.exists():
                 audio_file.unlink()
             raise HTTPException(
                 status_code=500,
-                detail="Video too complex or long — Whisper timed out after 5 minutes."
+                detail="Transcription timed out after 30 minutes — video may be too long."
             )
         
         audio_file.unlink()

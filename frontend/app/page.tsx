@@ -4,16 +4,15 @@ import { useState, useEffect } from 'react'
 import VideoUploader from '@/components/VideoUploader'
 import AIVideoProcessor from '@/components/AIVideoProcessor'
 import AuthForm from '@/components/AuthForm'
-import { clearToken } from '@/lib/api'
+import { clearToken, getToken } from '@/lib/api'
 
 export default function Home() {
   const [fileId, setFileId] = useState<string | null>(null)
   const [fileName, setFileName] = useState<string | null>(null)
-  const [isAuthed, setIsAuthed] = useState(true)  // TODO: Re-enable auth - set to true for dev
+  const [isAuthed, setIsAuthed] = useState(false)
 
   useEffect(() => {
-    // setIsAuthed(!!getToken())  // TODO: Re-enable auth
-    setIsAuthed(true)  // Skip auth for development
+    setIsAuthed(!!getToken())
   }, [])
 
   const handleUploadSuccess = (id: string, name: string) => {
