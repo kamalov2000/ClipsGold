@@ -259,7 +259,23 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             
             words = segment.get("words", [])
             if not words:
-                continue
+                # Synthesize word timings by distributing segment text evenly
+                seg_text = (segment.get("text") or "").strip()
+                if not seg_text:
+                    continue
+                raw_words = seg_text.split()
+                if not raw_words:
+                    continue
+                seg_dur = max(seg_end - seg_start, 0.1)
+                word_dur = seg_dur / len(raw_words)
+                words = []
+                for wi, w in enumerate(raw_words):
+                    words.append({
+                        "word": " " + w,
+                        "start": round(seg_start + wi * word_dur, 3),
+                        "end":   round(seg_start + (wi + 1) * word_dur, 3),
+                        "probability": 1.0,
+                    })
             
             # Filter words that overlap with clip time range (include words at boundaries).
             # Also exclude words marked as fillers by _apply_corrected_segment_text (H3).
