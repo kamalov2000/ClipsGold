@@ -79,6 +79,8 @@ async def render_single_clip_with_progress(
     use_semantic_chunking: bool = True,
     start_time_override: Optional[float] = None,
     end_time_override: Optional[float] = None,
+    subtitle_language: str = "auto",
+    render_mode: str = "auto",
 ):
     """
     Render a single clip with WebSocket progress tracking.
@@ -103,7 +105,15 @@ async def render_single_clip_with_progress(
     # Get clip candidates
     candidates = clip_candidates_store.get(file_id)
     if not candidates:
-        raise HTTPException(status_code=404, detail="No candidates found for this file")
+        # Fallback: restore from disk after backend restart
+        analysis_file = OUTPUT_DIR / f"{file_id}_analysis.json"
+        if analysis_file.exists():
+            with analysis_file.open("r", encoding="utf-8") as f:
+                candidates = json.load(f)
+            clip_candidates_store[file_id] = candidates
+            print(f"  -> Restored {len(candidates)} candidates from disk (was not in memory)")
+        else:
+            raise HTTPException(status_code=404, detail="No candidates found for this file")
     
     if clip_index >= len(candidates):
         raise HTTPException(status_code=404, detail="Clip index out of range")
@@ -170,7 +180,20 @@ async def render_single_clip_with_progress(
     # Get crop filter
     crop_filter = None
     crop_preview = clip.get("crop_preview")
-    if reframer:
+    
+    # Detect no-face mode: use blur background instead of smart crop
+    _preview_mode = (crop_preview or {}).get("mode", "center_crop")
+    _has_face = _preview_mode not in ("center_crop", None) and bool((crop_preview or {}).get("faces"))
+    if render_mode == "blur_background":
+        _force_blur = True
+    elif render_mode == "face_crop":
+        _force_blur = False
+    else:  # "auto"
+        _force_blur = not _has_face and _preview_mode != "split_screen"
+
+    if _force_blur:
+        print(f"  -> Blur background mode (render_mode={render_mode}, mode={_preview_mode})")
+    elif reframer:
         try:
             crop_filter = reframer.get_crop_filter(
                 input_file,
@@ -212,13 +235,14 @@ async def render_single_clip_with_progress(
                 is_split_screen=is_split_screen,
                 crop_preview=crop_preview,
                 subtitle_style=subtitle_style,
+                subtitle_language=subtitle_language,
             )
         except Exception as e:
             print(f"[FAIL] Subtitle generation failed: {e}")
     
     # Determine split screen mode
     is_split_screen_mode = crop_preview and crop_preview.get("mode") == "split_screen" if crop_preview else False
-    letterbox_with_blur = False
+    letterbox_with_blur = _force_blur
     
     # Get random background video for satisfying split-screen mode
     background_video_path = None

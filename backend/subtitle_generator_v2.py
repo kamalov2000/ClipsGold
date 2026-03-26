@@ -30,9 +30,6 @@ SUBTITLE_STYLES = {
     "hormozi": (
         "Montserrat", 62, "&H00FFFFFF", "&H0000FFFF", "&H00000000", 6, 10, 450, -1
     ),
-    "beast": (
-        "Impact", 78, "&H0000FFFF", "&H000000FF", "&H00FFFFFF", 8, 4, 420, -1
-    ),
     "minimal": (
         "Arial", 44, "&H00FFFFFF", "&H00FFFFFF", "&H00000000", 2, 2, 120, 0
     ),
@@ -209,6 +206,70 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         
         return sentence_starts
     
+    def _translate_segments(self, segments: List[Dict], target_language: str) -> List[Dict]:
+        """
+        Translate segment texts to target_language using GPT-4o.
+        Reconstructs word-level timings by distributing proportionally across translated words.
+        target_language: 'en' (English) or 'ru' (Russian)
+        """
+        import os
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            return segments
+
+        lang_name = "English" if target_language == "en" else "Russian"
+
+        # Collect texts to translate
+        texts = [seg.get("text", "").strip() for seg in segments]
+        if not any(texts):
+            return segments
+
+        prompt = f"Translate each line to {lang_name}. Return ONLY the translated lines in the same order, one per line, no numbering.\n\n" + "\n".join(texts)
+
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key)
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=2048,
+            )
+            translated_lines = (response.choices[0].message.content or "").strip().split("\n")
+        except Exception as e:
+            print(f"  [WARN] Translation failed: {e}")
+            return segments
+
+        translated_segments = []
+        for i, seg in enumerate(segments):
+            translated_text = translated_lines[i].strip() if i < len(translated_lines) else seg.get("text", "")
+            seg_start = seg.get("start", 0)
+            seg_end = seg.get("end", seg_start + 1)
+            seg_duration = max(seg_end - seg_start, 0.1)
+
+            # Build proportional word timings from translated text
+            raw_words = translated_text.split()
+            if not raw_words:
+                translated_segments.append(dict(seg, text=translated_text, words=[]))
+                continue
+
+            word_dur = seg_duration / len(raw_words)
+            new_words = []
+            for wi, w in enumerate(raw_words):
+                new_words.append({
+                    "word": " " + w,
+                    "start": round(seg_start + wi * word_dur, 3),
+                    "end": round(seg_start + (wi + 1) * word_dur, 3),
+                    "probability": 1.0,
+                })
+
+            new_seg = dict(seg)
+            new_seg["text"] = translated_text
+            new_seg["words"] = new_words
+            translated_segments.append(new_seg)
+
+        return translated_segments
+
     def generate_ass_from_transcription(
         self,
         transcription_data: Dict,
@@ -222,27 +283,32 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         is_split_screen: bool = False,
         crop_preview: Optional[Dict] = None,
         subtitle_style: str = "hormozi",
+        subtitle_language: str = "auto",
     ) -> List[float]:
         """Generate ASS subtitle file with word-level highlighting.
-        subtitle_style: 'hormozi' | 'beast' | 'minimal'
+        subtitle_style: 'hormozi' | 'minimal'
         Returns list of sentence start times for zoom effect."""
         
         segments = transcription_data.get("segments", [])
         if not segments:
             return []
-        
+
+        # Translation: if subtitle_language is 'en' or 'ru' and differs from auto,
+        # translate segments before generating subtitle lines.
+        # 'auto' = use transcript as-is; 'ru' = Russian; 'en' = English
+        if subtitle_language == "en":
+            print(f"  [LANG] Translating subtitles to English...")
+            segments = self._translate_segments(segments, "en")
+        elif subtitle_language == "ru":
+            print(f"  [LANG] Translating subtitles to Russian...")
+            segments = self._translate_segments(segments, "ru")
+
         # Calculate clip duration
         if clip_duration is None:
             clip_duration = clip_end_time - clip_start_time if clip_end_time else 30
         
         # Start with style template (dynamic per subtitle_style + platform safe-zones)
         ass_content = self._build_style_template(subtitle_style, platform)
-        
-        # Add progress bar at bottom (5px high, yellow, fills 0-100%)
-        progress_end = self.format_timestamp(clip_duration)
-        # Progress bar using ASS drawing commands
-        # \p1 = drawing mode, \1a = alpha, \c = color
-        ass_content += f"Dialogue: 0,0:00:00.00,{progress_end},Default,,0,0,0,,{{\\pos(540,1915)\\p1\\c&H0000FFFF&\\1a&H00&\\t(0,{int(clip_duration*1000)},\\fscx0,\\fscx100)}}m 0 0 l 1080 0 1080 5 0 5{{\\p0}}\n"
         
         # Process word-level subtitles
         total_subtitle_lines = 0

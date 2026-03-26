@@ -66,6 +66,17 @@ export default function Home() {
             />
           )}
         </div>
+
+        {/* Contact block */}
+        <div className="mt-16 text-center border-t border-white/10 pt-8">
+          <p className="text-gray-400 text-sm mb-1">Есть вопросы или предложения? Пишите нам!</p>
+          <a
+            href="mailto:kamalov.alb2000@yandex.ru"
+            className="text-purple-400 hover:text-purple-300 text-sm font-medium transition-colors"
+          >
+            kamalov.alb2000@yandex.ru
+          </a>
+        </div>
       </div>
     </main>
   )

@@ -178,9 +178,11 @@ def detect_faces_multi_frame(
     
     clip_duration = clip_end - clip_start
     
-    # Define sample points (relative to clip start)
-    # Scan 0s, 1s, 2s, 3s, 4s, 5s — pick frame with highest MediaPipe confidence
-    sample_offsets = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
+    # Define sample points (relative to clip start).
+    # Skip the first 10% of the clip (or at least 0.5s) to avoid dark fade-in frames.
+    # Scan from that offset at 1s intervals — pick frame with highest MediaPipe confidence.
+    min_offset = max(0.5, clip_duration * 0.10)
+    sample_offsets = [min_offset + i for i in [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]]
     sample_offsets = [offset for offset in sample_offsets if offset < clip_duration]
     
     # If clip is very short, at least sample start and middle
@@ -331,11 +333,31 @@ def calculate_crop_coordinates(
         face_x, face_y, face_w, face_h = face
         face_center_x = face_x + face_w // 2
         face_center_y = face_y + face_h // 2
-        
+
+        # 40% padding: ensure face + 40% of its size is visible on each side
+        pad_w = int(face_w * 0.4)
+        pad_h = int(face_h * 0.4)
+
+        # Center crop on face, then constrain so padded region stays inside crop
         crop_x = face_center_x - target_width // 2
         crop_x = max(crop_x, face_center_x - ui_safe_left)
-        crop_x = max(eff_min_x, min(crop_x, eff_max_x))
-        crop_y = max(eff_min_y, min(face_center_y - target_height // 2, eff_max_y))
+        # Left padding: crop must start before (face_x - pad_w)
+        # Right padding: crop must end after (face_x + face_w + pad_w)
+        crop_x_min_pad = max(eff_min_x, face_x + face_w + pad_w - target_width)
+        crop_x_max_pad = min(eff_max_x, face_x - pad_w)
+        if crop_x_min_pad <= crop_x_max_pad:
+            crop_x = max(crop_x_min_pad, min(crop_x, crop_x_max_pad))
+        else:
+            crop_x = max(eff_min_x, min(crop_x, eff_max_x))
+
+        # Y: center with 40% padding constraint
+        crop_y_center = face_center_y - target_height // 2
+        crop_y_min_pad = max(eff_min_y, face_y + face_h + pad_h - target_height)
+        crop_y_max_pad = min(eff_max_y, face_y - pad_h)
+        if crop_y_min_pad <= crop_y_max_pad:
+            crop_y = max(crop_y_min_pad, min(crop_y_center, crop_y_max_pad))
+        else:
+            crop_y = max(eff_min_y, min(crop_y_center, eff_max_y))
     
     elif mode == "group_face":
         faces = layout_info["faces"]
@@ -539,8 +561,19 @@ def generate_thumbnails_for_candidates(
             video_height
         )
         
-        layout_info = analyze_face_layout(best_faces, video_width)
-        
+        # Decision tree: choose crop mode based on face count + confidence
+        n_faces = len(best_faces)
+        if n_faces == 0:
+            layout_info = {"mode": "center_crop", "faces": [], "distance_percent": 0}
+        elif n_faces > 2:
+            print(f"    -> {n_faces} faces detected (>2) — forcing blur background mode")
+            layout_info = {"mode": "center_crop", "faces": [], "distance_percent": 0}
+        elif n_faces == 1 and best_confidence < 0.7:
+            print(f"    -> Low confidence {best_confidence:.2f} (<0.7) — forcing blur background mode")
+            layout_info = {"mode": "center_crop", "faces": [], "distance_percent": 0}
+        else:
+            layout_info = analyze_face_layout(best_faces, video_width)
+
         # Crop: respect content rect (no black) and reserve right 15% for platform UI
         crop_coords = calculate_crop_coordinates(
             video_width,
@@ -571,8 +604,9 @@ def generate_thumbnails_for_candidates(
         else:
             print(f"    -> Center crop (no faces detected)")
         
-        # Extract thumbnail frame at best_timestamp (or start_time if no faces)
-        thumbnail_timestamp = start_time + best_timestamp if best_faces else start_time
+        # Extract thumbnail frame at best_timestamp (or 15% into clip if no faces — avoids dark fade-in)
+        clip_duration_here = end_time - start_time
+        thumbnail_timestamp = start_time + best_timestamp if best_faces else start_time + clip_duration_here * 0.15
         success, _ = generate_thumbnail(input_video, thumbnail_path, thumbnail_timestamp, detect_crop=False)
         
         # Add thumbnail URL and crop coordinates to candidate

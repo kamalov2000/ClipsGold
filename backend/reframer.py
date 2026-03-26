@@ -203,21 +203,37 @@ class FaceReframer:
             print(f"  -> No faces detected, using center crop for {video_width}x{video_height}")
             return self._default_center_crop(video_width, video_height, target_aspect)
         
-        # Calculate average face center position
+        # Calculate average face center + dimensions
         avg_x = int(np.mean([x + w // 2 for x, y, w, h in face_boxes]))
         avg_y = int(np.mean([y + h // 2 for x, y, w, h in face_boxes]))
-        
+        avg_face_w = int(np.mean([w for x, y, w, h in face_boxes]))
+        avg_face_h = int(np.mean([h for x, y, w, h in face_boxes]))
+
         # Calculate target dimensions for 9:16 aspect ratio
         target_width = int(video_height * target_aspect[0] / target_aspect[1])
         target_height = video_height
-        
+
         if target_width > video_width:
             target_width = video_width
             target_height = int(video_width * target_aspect[1] / target_aspect[0])
-        
+
         # Center crop on face position
         crop_x = max(0, min(avg_x - target_width // 2, video_width - target_width))
         crop_y = max(0, min(avg_y - target_height // 2, video_height - target_height))
+
+        # 40% padding: constrain so face + 40% of its size stays within crop
+        pad_w = int(avg_face_w * 0.4)
+        pad_h = int(avg_face_h * 0.4)
+        face_left = avg_x - avg_face_w // 2
+        face_top = avg_y - avg_face_h // 2
+        crop_x_min_pad = max(0, face_left + avg_face_w + pad_w - target_width)
+        crop_x_max_pad = min(video_width - target_width, face_left - pad_w)
+        if crop_x_min_pad <= crop_x_max_pad:
+            crop_x = max(crop_x_min_pad, min(crop_x, crop_x_max_pad))
+        crop_y_min_pad = max(0, face_top + avg_face_h + pad_h - target_height)
+        crop_y_max_pad = min(video_height - target_height, face_top - pad_h)
+        if crop_y_min_pad <= crop_y_max_pad:
+            crop_y = max(crop_y_min_pad, min(crop_y, crop_y_max_pad))
         
         # Ensure even numbers for FFmpeg
         crop_x = (crop_x // 2) * 2

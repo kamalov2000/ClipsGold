@@ -19,12 +19,12 @@ class MockAnalyzer:
     def __init__(self, provider: str = "mock"):
         self.provider = "mock"
     
-    def analyze_transcription(self, transcription: str, video_duration: float) -> List[Dict]:
+    def analyze_transcription(self, transcription: str, video_duration: float, max_clips: int = 5) -> List[Dict]:
         clips = []
-        
-        # Generate 3 clips based on video duration
+
+        # Generate mock clips based on video duration
         clip_duration = 30.0
-        max_clips = min(3, int(video_duration / clip_duration))
+        max_clips = min(max_clips, int(video_duration / clip_duration))
         
         titles = [
             "Epic Opening Hook",
@@ -169,12 +169,12 @@ Return ONLY the hook text, nothing else."""
         
         return hook
     
-    def analyze_transcription(self, transcription: str, video_duration: float) -> List[Dict]:
+    def analyze_transcription(self, transcription: str, video_duration: float, max_clips: int = 5) -> List[Dict]:
         """
         Analyze transcription with hybrid provider logic.
         Tries active provider first, falls back to secondary if available.
         """
-        prompt = f"""You are an expert viral content strategist. Analyze this video transcription and find the TOP 3 most viral-worthy clips.
+        prompt = f"""You are an expert viral content strategist. Analyze this video transcription and find the TOP {max_clips} most viral-worthy clips.
 
 Video Duration: {video_duration} seconds
 Transcription:
@@ -259,7 +259,7 @@ Return ONLY the JSON array, no other text."""
         if not clips:
             raise Exception("OpenAI analysis failed after 3 attempts. Check OPENAI_API_KEY and network.")
         
-        validated_clips = self._validate_clips(clips, video_duration)
+        validated_clips = self._validate_clips(clips, video_duration, max_clips=max_clips)
         return validated_clips
     
     def _parse_fallback(self, content: str) -> List[Dict]:
@@ -285,7 +285,7 @@ Return ONLY the JSON array, no other text."""
         
         return []
     
-    def _validate_clips(self, clips: List[Dict], video_duration: float) -> List[Dict]:
+    def _validate_clips(self, clips: List[Dict], video_duration: float, max_clips: int = 5) -> List[Dict]:
         validated = []
         
         for clip in clips:
@@ -338,7 +338,7 @@ Return ONLY the JSON array, no other text."""
             })
         
         validated.sort(key=lambda x: x["virality_score"], reverse=True)
-        return validated[:3]
+        return validated[:max_clips]
 
 
 def create_analyzer(provider: str = "openai"):

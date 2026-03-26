@@ -14,7 +14,7 @@ load_dotenv()
 
 VIRAL_SCOUT_SYSTEM_PROMPT = """You are a viral content expert specializing in short-form video platforms (TikTok, YouTube Shorts, Instagram Reels).
 
-Your task: Analyze a video transcript and identify 3-5 high-impact segments that have viral potential.
+Your task: Analyze a video transcript and identify ALL moments that are genuinely worth going viral.
 
 CRITERIA FOR VIRAL MOMENTS:
 1. **Emotional Hooks**: Controversy, shock, humor, inspiration, relatability
@@ -55,7 +55,8 @@ RULES:
 - Return ONLY valid JSON array (no markdown, no explanations)
 - viral_score: 1-10 (10 = extremely viral potential)
 - title: NO MORE than 3 words. Use STRONG VERBS. NO long sentences. Examples: "SHOCK WAGES", "WOKE DEAD", "EPIC FAIL"
-- Identify 3-5 segments minimum
+- There is NO minimum or maximum number of clips — if only 1 moment is truly viral, return 1; if 8 deserve attention, return 8. Do NOT force yourself to find exactly 3. Quality over quantity.
+- ONLY include moments with viral_score 7/10 or higher
 - Each segment: 20-60 seconds duration (hard limits)
 - Preserve original language context (slang, brands, names stay as-is)
 - Title must be SHORT and PUNCHY - will overlay on video
@@ -65,16 +66,13 @@ RULES:
 
 async def discover_viral_moments(
     transcription_data: Dict[str, Any],
-    min_segments: int = 3,
-    max_segments: int = 5
 ) -> List[Dict[str, Any]]:
     """
     Analyze transcript and discover viral moments using GPT-4o.
+    GPT decides how many clips to return (only score ≥7, no fixed count).
     
     Args:
         transcription_data: Full transcription with segments and timestamps
-        min_segments: Minimum number of viral moments to find
-        max_segments: Maximum number of viral moments to find
     
     Returns:
         List of viral moment dictionaries with start_time, end_time, title, viral_score, hook
@@ -106,7 +104,8 @@ async def discover_viral_moments(
     full_transcript = "\n".join(transcript_lines)
     
     # Prepare user prompt
-    user_prompt = f"""Analyze this transcript and identify {min_segments}-{max_segments} viral moments:
+    user_prompt = f"""Analyze this transcript and identify ALL genuinely viral moments (score 7/10 or higher only).
+There is no fixed number — return as many or as few as truly deserve it.
 
 {full_transcript}
 
@@ -129,7 +128,7 @@ Return JSON array of viral moments with start_time, end_time, title, viral_score
                         {"role": "user", "content": user_prompt},
                     ],
                     temperature=0.7,
-                    max_tokens=2048,
+                    max_tokens=4096,
                 )
                 raw_response = (response.choices[0].message.content or "").strip()
                 break

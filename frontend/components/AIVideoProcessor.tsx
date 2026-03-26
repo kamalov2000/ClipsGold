@@ -73,6 +73,7 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
   const [downloadingClips, setDownloadingClips] = useState<Set<number>>(new Set())
   const [error, setError] = useState<string | null>(null)
   const provider = 'openai'
+  const [maxClips, setMaxClips] = useState<number>(5)
   const [targetPlatform, setTargetPlatform] = useState<'tiktok' | 'youtube' | 'instagram'>('tiktok')
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
   
@@ -86,6 +87,12 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
 
   // Subtitle style per clip
   const [subtitleStyles, setSubtitleStyles] = useState<{[key: number]: string}>({})
+
+  // Subtitle language per clip
+  const [subtitleLanguages, setSubtitleLanguages] = useState<{[key: number]: string}>({})
+
+  // Render mode per clip: 'face_crop' | 'blur_background'
+  const [renderModes, setRenderModes] = useState<{[key: number]: 'face_crop' | 'blur_background'}>({})
 
   // Jump-cut toggle (global)
   const [enableJumpCut, setEnableJumpCut] = useState(false)
@@ -153,7 +160,7 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
 
     try {
       const response = await api.post(
-        `/analyze/${fileId}?provider=${provider}`
+        `/analyze/${fileId}?provider=${provider}&max_clips=${maxClips}`
       )
       // Store candidates, don't auto-render
       setCandidates(response.data.viral_clips)
@@ -167,6 +174,15 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
       })
       setOriginalCropX(initialCropX)
       setManualCropX({})
+
+      // Default render mode: face_crop if face detected, blur_background otherwise
+      const initialRenderModes: {[key: number]: 'face_crop' | 'blur_background'} = {}
+      response.data.viral_clips.forEach((candidate: Candidate, index: number) => {
+        const mode = candidate.crop_preview?.mode
+        const hasFace = mode === 'single_face' || mode === 'group_face' || mode === 'split_screen'
+        initialRenderModes[index] = hasFace ? 'face_crop' : 'blur_background'
+      })
+      setRenderModes(initialRenderModes)
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Analysis failed')
     } finally {
@@ -257,8 +273,10 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
             ? manualCropX[clipIndex]
             : null,
           subtitle_style: subtitleStyles[clipIndex] || 'hormozi',
+          subtitle_language: subtitleLanguages[clipIndex] || 'auto',
           enable_jump_cut: enableJumpCut,
           enable_sfx: false,
+          render_mode: renderModes[clipIndex] ?? 'auto',
         }
       )
       
@@ -367,28 +385,11 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
     }
   }
 
-  const handleDownloadClip = async (clipId: number, downloadUrl?: string, candidateIndex?: number) => {
-    const idx = candidateIndex ?? clipId
-    setDownloadingClips(prev => new Set(prev).add(idx))
-    try {
-      const url = downloadUrl
-        ? `${API_BASE}${downloadUrl}`
-        : `${API_BASE}/clips/${fileId}_clip_${clipId}_VIRAL_GOLD.mp4`
-      const response = await api.get(url, { responseType: 'blob' })
-      const filename = response.headers['content-disposition']?.split('filename=')?.[1]?.replace(/"/g, '') || `${fileId}_clip_${clipId}_VIRAL_GOLD.mp4`
-      const blobUrl = window.URL.createObjectURL(new Blob([response.data]))
-      const link = document.createElement('a')
-      link.href = blobUrl
-      link.setAttribute('download', filename)
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      window.URL.revokeObjectURL(blobUrl)
-    } catch (err: any) {
-      setError('Download failed - clip may still be rendering')
-    } finally {
-      setDownloadingClips(prev => { const s = new Set(prev); s.delete(idx); return s })
-    }
+  const handleDownloadClip = (clipId: number, downloadUrl?: string, candidateIndex?: number) => {
+    const url = downloadUrl
+      ? `${API_BASE}${downloadUrl}`
+      : `${API_BASE}/clips/${fileId}_clip_${clipId}_VIRAL_GOLD.mp4`
+    window.open(url, '_blank')
   }
 
   const handleRerender = (index: number) => {
@@ -533,6 +534,27 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
             >
               Instagram
             </button>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Количество клипов
+          </label>
+          <div className="flex gap-3">
+            {[3, 5, 10, 15].map((n) => (
+              <button
+                key={n}
+                onClick={() => setMaxClips(n)}
+                className={`flex-1 px-4 py-2 rounded-lg border-2 transition-all ${
+                  maxClips === n
+                    ? 'border-purple-600 bg-purple-50 text-purple-700'
+                    : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                }`}
+              >
+                {n}
+              </button>
+            ))}
           </div>
         </div>
       </div>
@@ -772,8 +794,17 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
                         className="text-xs border border-purple-300 rounded-lg px-2 py-1 bg-white text-purple-700 font-semibold focus:ring-2 focus:ring-purple-400 cursor-pointer"
                       >
                         <option value="hormozi">🟡 Hormozi</option>
-                        <option value="beast">🔵 Beast</option>
                         <option value="minimal">⚪ Minimal</option>
+                      </select>
+                      {/* Subtitle language selector */}
+                      <select
+                        value={subtitleLanguages[index] || 'auto'}
+                        onChange={(e) => setSubtitleLanguages(prev => ({ ...prev, [index]: e.target.value }))}
+                        className="text-xs border border-blue-300 rounded-lg px-2 py-1 bg-white text-blue-700 font-semibold focus:ring-2 focus:ring-blue-400 cursor-pointer"
+                      >
+                        <option value="auto">🌐 Авто</option>
+                        <option value="ru">🇷🇺 Русский</option>
+                        <option value="en">🇬🇧 English</option>
                       </select>
                       {renderedClip && (
                         <span className="px-2 py-1 bg-green-500 text-white text-xs font-bold rounded">
@@ -820,8 +851,33 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
                       </div>
                     )}
                     
-                    {/* Smart Crop Visualization - Full 16:9 frame with crop overlay */}
-                    <div className="mb-3 p-3 bg-gradient-to-b from-gray-50 to-gray-100 rounded-lg border border-gray-300">
+                    {/* Render Mode Toggle */}
+                    <div className="mb-3 flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-semibold text-gray-500">Режим рендера:</span>
+                      <button
+                        onClick={() => setRenderModes(prev => ({ ...prev, [index]: 'face_crop' }))}
+                        className={`px-3 py-1 text-xs rounded-lg font-medium border transition-colors ${
+                          (renderModes[index] ?? 'face_crop') === 'face_crop'
+                            ? 'bg-purple-600 text-white border-purple-600'
+                            : 'bg-white text-gray-600 border-gray-300 hover:border-purple-400'
+                        }`}
+                      >
+                        ✂ Кроп лица
+                      </button>
+                      <button
+                        onClick={() => setRenderModes(prev => ({ ...prev, [index]: 'blur_background' }))}
+                        className={`px-3 py-1 text-xs rounded-lg font-medium border transition-colors ${
+                          (renderModes[index] ?? 'face_crop') === 'blur_background'
+                            ? 'bg-purple-600 text-white border-purple-600'
+                            : 'bg-white text-gray-600 border-gray-300 hover:border-purple-400'
+                        }`}
+                      >
+                        ⬜ Весь кадр
+                      </button>
+                    </div>
+
+                    {/* Smart Crop Visualization — hidden when no face detected */}
+                    {candidate.crop_preview !== undefined && candidate.crop_preview.mode !== 'center_crop' && (candidate.crop_preview.mode === 'split_screen' || candidate.crop_preview.crop_x !== undefined) && (<div className="mb-3 p-3 bg-gradient-to-b from-gray-50 to-gray-100 rounded-lg border border-gray-300">
                       <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
                         <p className="text-xs font-semibold text-gray-600">
                           🎬 Smart Crop Preview ({targetPlatform.toUpperCase()})
@@ -1259,9 +1315,10 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
                         )}
                       </div>
                     </div>
-                    
+                    )}
+
                     {/* Manual Crop Control Slider - constrained to Safe Zone (face not in right 15%) */}
-                    {candidate.crop_preview && candidate.crop_preview.mode !== 'split_screen' && candidate.crop_preview.crop_x !== undefined && (
+                    {candidate.crop_preview && candidate.crop_preview.mode !== 'split_screen' && candidate.crop_preview.mode !== 'center_crop' && candidate.crop_preview.crop_x !== undefined && (
                       <div className="mb-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
                         <div className="flex items-center justify-between mb-2">
                           <label className="text-xs font-semibold text-blue-700">
@@ -1383,20 +1440,10 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
                       <div className="flex flex-col gap-2">
                         <button
                           onClick={() => handleDownloadClip(renderedClip.clip_id, renderedClip.downloadUrl, index)}
-                          disabled={downloadingClips.has(index)}
-                          className="px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-700 hover:to-emerald-700 transition-colors flex items-center gap-2 whitespace-nowrap shadow-lg disabled:opacity-70 disabled:cursor-not-allowed"
+                          className="px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-700 hover:to-emerald-700 transition-colors flex items-center gap-2 whitespace-nowrap shadow-lg"
                         >
-                          {downloadingClips.has(index) ? (
-                            <>
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                              Скачивается...
-                            </>
-                          ) : (
-                            <>
-                              <Download className="w-4 h-4" />
-                              Download
-                            </>
-                          )}
+                          <Download className="w-4 h-4" />
+                          Download
                         </button>
                         <button
                           onClick={() => handleRerender(index)}

@@ -36,7 +36,7 @@ from jose import jwt as _jose_jwt, JWTError as _JWTError
 import hmac as _hmac
 import hashlib as _hashlib
 from datetime import datetime as _datetime, timedelta as _timedelta
-from db.session import create_tables
+from db.session import create_tables, get_db
 from db.models import User
 from routers.auth import router as auth_router
 from routers.factory import router as factory_router
@@ -137,11 +137,13 @@ async def _render_worker():
                 manual_crop_x=job.get("manual_crop_x"),
                 show_hook=job.get("show_hook", True),
                 subtitle_style=job.get("subtitle_style", "hormozi"),
+                subtitle_language=job.get("subtitle_language", "auto"),
                 enable_jump_cut=job.get("enable_jump_cut", False),
                 enable_sfx=job.get("enable_sfx", True),
                 use_semantic_chunking=job.get("use_semantic_chunking", True),
                 start_time_override=job.get("start_time_override"),
                 end_time_override=job.get("end_time_override"),
+                render_mode=job.get("render_mode", "auto"),
             )
             download_path = f"/download-clip/{job['file_id']}/{result['clip_id']}"
             await manager.send_progress(task_id, {
@@ -416,14 +418,16 @@ def fill_segment_gaps(segments: List[Dict], video_duration: float, gap_threshold
 
 
 def extract_audio(video_path: Path, audio_path: Path):
+    # MP3 64kbps mono — ~8KB/s vs 32KB/s for WAV. 4x smaller → fewer API chunks.
     subprocess.run(
         [
             get_ffmpeg_path(),
             "-i", str(video_path),
             "-vn",
-            "-acodec", "pcm_s16le",
+            "-acodec", "libmp3lame",
             "-ar", "16000",
             "-ac", "1",
+            "-b:a", "64k",
             "-y",
             str(audio_path)
         ],
@@ -462,7 +466,7 @@ async def cut_video_segment_enhanced(
         emoji_sequence: Optional list of emoji pop-up configs [{"emoji": "🔥", "start": 2.0, "duration": 1.5}, ...]
     """
     duration = end_time - start_time
-    
+
     # Progress callback for WebSocket updates
     async def send_progress(tid: str, progress: dict):
         await manager.send_progress(tid, progress)
@@ -472,14 +476,12 @@ async def cut_video_segment_enhanced(
     temp_dir.mkdir(exist_ok=True)
     temp_cut_file = temp_dir / f"temp_cut_{output_path.stem}.mp4"
     
-    print(f"\n  === TWO-PASS RENDERING ===")
-    print(f"  -> Pass 1: Physical cut (reset timestamps to 00:00:00)")
-    
-    # ========== PASS 1: PHYSICAL CUT (TIMESTAMP RESET) ==========
-    # Supports optional jump-cut: if jump_cut_segments provided, concat-cut silences
-    if jump_cut_segments and len(jump_cut_segments) > 1:
-        print(f"  -> Pass 1: Jump-cut mode ({len(jump_cut_segments)} segments)")
-        # Write concat list of trimmed segments from the source
+    # ========== JUMP-CUT PRE-PASS (only when jump-cut enabled) ==========
+    _use_jump_cut = bool(jump_cut_segments and len(jump_cut_segments) > 1)
+
+    if _use_jump_cut:
+        print(f"\n  === TWO-PASS RENDERING (Jump-Cut) ===")
+        print(f"  -> Pre-Pass: Jump-cut segments concat ({len(jump_cut_segments)} segments)")
         concat_list_path = temp_dir / f"concat_{output_path.stem}.txt"
         segment_files = []
         for i, seg in enumerate(jump_cut_segments):
@@ -492,7 +494,7 @@ async def cut_video_segment_enhanced(
                 get_ffmpeg_path(),
                 "-ss", str(seg_start), "-t", str(seg_dur),
                 "-i", str(input_path),
-                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-threads", "0",
                 "-c:a", "aac", "-b:a", "128k", "-y", str(seg_file)
             ]
             r = subprocess.run(cmd_seg, capture_output=True, text=True)
@@ -502,51 +504,39 @@ async def cut_video_segment_enhanced(
             with concat_list_path.open("w") as f:
                 for sf in segment_files:
                     f.write(f"file '{sf.as_posix()}'\n")
-            cmd_pass1 = [
+            cmd_concat = [
                 get_ffmpeg_path(),
                 "-f", "concat", "-safe", "0",
                 "-i", str(concat_list_path),
                 "-c", "copy", "-y", str(temp_cut_file)
             ]
+            r2 = subprocess.run(cmd_concat, capture_output=True, text=True)
+            if r2.returncode != 0:
+                print(f"  [FAIL] Jump-cut concat failed, falling back to single-pass")
+                _use_jump_cut = False
+            else:
+                for sf in temp_dir.glob(f"seg_{output_path.stem}_*.mp4"):
+                    try: sf.unlink()
+                    except Exception: pass
+                print(f"  [OK] Jump-cut concat complete")
         else:
-            jump_cut_segments = None  # fallback to standard
-    
-    if not jump_cut_segments or len(jump_cut_segments) <= 1:
-        cmd_pass1 = [
-            get_ffmpeg_path(),
-            "-ss", str(start_time),
-            "-t", str(duration),
-            "-i", str(input_path),
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-crf", "23",
-            "-c:a", "aac",
-            "-b:a", "128k",
-            "-y", str(temp_cut_file)
-        ]
+            _use_jump_cut = False  # no valid segments, fallback
 
-    print(f"     Command: {' '.join(str(c) for c in cmd_pass1)}")
+    # _render_input: source for the render pass
+    # Single-pass uses input seeking + setpts reset; jump-cut uses pre-cut temp file
+    if _use_jump_cut:
+        _render_input = str(temp_cut_file)
+        _ss_args: list = []       # already cut, no seeking needed
+        _need_setpts = False      # timestamps already start at 0
+    else:
+        _render_input = str(input_path)
+        _ss_args = ["-ss", str(start_time), "-t", str(duration)]
+        _need_setpts = True       # seeking → add setpts=PTS-STARTPTS for subtitle sync
+        print(f"\n  === SINGLE-PASS RENDERING ===")
+        print(f"  -> Direct input seeking: -ss {start_time:.2f}s (setpts reset for subtitle sync)")
 
-    result_pass1 = subprocess.run(cmd_pass1, capture_output=True, text=True)
-    if result_pass1.returncode != 0:
-        last_lines = (result_pass1.stderr or "").splitlines()[-10:]
-        print(f"  [FAIL] Pass 1 FAILED (exit {result_pass1.returncode}) — last 10 stderr lines:")
-        for ln in last_lines:
-            print(f"     {ln}")
-        raise subprocess.CalledProcessError(result_pass1.returncode, cmd_pass1, result_pass1.stdout, result_pass1.stderr)
-
-    # Cleanup jump-cut segment files
-    if jump_cut_segments and len(jump_cut_segments) > 1:
-        for sf in temp_dir.glob(f"seg_{output_path.stem}_*.mp4"):
-            try:
-                sf.unlink()
-            except Exception:
-                pass
-
-    print(f"  [OK] Pass 1 complete: Timestamps reset to 00:00:00")
-    
-    # ========== PASS 2: APPLY EFFECTS TO 0-BASED CLIP ==========
-    print(f"  -> Pass 2: Apply effects (zoom, crop, subtitles) to 0-based clip")
+    # ========== RENDER PASS: APPLY ALL EFFECTS ==========
+    print(f"  -> Render: Apply effects (crop, subtitles, audio mastering)")
     
     # Probe video dimensions to clamp crop filter safely
     import re
@@ -554,7 +544,7 @@ async def cut_video_segment_enhanced(
         probe = subprocess.run(
             ["ffprobe", "-v", "error", "-select_streams", "v:0",
              "-show_entries", "stream=width,height", "-of", "csv=p=0",
-             str(temp_cut_file)],
+             str(input_path)],   # probe source; dimensions identical regardless of seek
             capture_output=True, text=True
         )
         parts = probe.stdout.strip().split(",")
@@ -563,6 +553,11 @@ async def cut_video_segment_enhanced(
     except Exception as e:
         print(f"  [WARN] Could not probe video dimensions: {e}")
         vid_width, vid_height = None, None
+
+    # Detect vertical source (portrait 9:16 or similar)
+    _is_vertical = bool(vid_width and vid_height and vid_height > vid_width)
+    if _is_vertical:
+        print(f"  [INFO] Vertical source detected ({vid_width}x{vid_height}) — passthrough mode (no crop/blur)")
 
     # Clamp crop_filter so it never exceeds actual video bounds
     if crop_filter and vid_width and vid_height:
@@ -605,19 +600,77 @@ async def cut_video_segment_enhanced(
             crop_filter = new_crop_filter
             print(f"  [OK] Manual crop override: X={manual_crop_x} (AI suggested: {crop_x})")
     
-    # Build Pass 2 FFmpeg command
-    cmd_pass2 = [
-        get_ffmpeg_path(),
-        "-i", str(temp_cut_file)
-    ]
-    
+    # Logo watermark asset (merged into this pass — no separate re-encode)
+    _logo_path = Path(__file__).parent / "assets" / "logo.png"
+    _has_logo = _logo_path.exists()
+    # Logo input index: right after main(0) + optional background(1)
+    _logo_idx = 2 if (background_video_path and background_video_path.exists()) else 1
+
+    # Build render command
+    cmd_pass2 = [get_ffmpeg_path()]
+    cmd_pass2.extend(_ss_args)                    # [-ss t -t d] for single-pass, [] for jump-cut
+    cmd_pass2.extend(["-i", _render_input])
+
     # Add background video input if available (for satisfying split-screen)
     if background_video_path and background_video_path.exists():
         cmd_pass2.extend(["-i", str(background_video_path)])
         print(f"     • Background video input: {background_video_path.name}")
+
+    # Add logo input now (before SFX so SFX index stays consistent)
+    if _has_logo:
+        cmd_pass2.extend(["-i", str(_logo_path)])
+        print(f"     • Logo input: {_logo_path.name} (input idx={_logo_idx})")
     
+    # Helper: prepend setpts=PTS-STARTPTS to filter_complex for single-pass subtitle sync
+    def _pts(fc: str) -> str:
+        if not _need_setpts:
+            return fc
+        return "[0:v]setpts=PTS-STARTPTS[_v0];" + fc.replace("[0:v]", "[_v0]", 1)
+
+    # Helper: inject logo overlay at the end of a filter_complex string
+    def _with_logo(fc: str, out_label: str = "[out]") -> str:
+        if not _has_logo:
+            return fc
+        idx = fc.rfind(out_label)
+        if idx == -1:
+            return fc
+        fc_mod = fc[:idx] + "[pre_logo]" + fc[idx + len(out_label):]
+        logo_chain = (
+            f"[{_logo_idx}:v]scale=200:-1,format=rgba,colorchannelmixer=aa=0.85[logo_wm];"
+            f"[pre_logo][logo_wm]overlay=W-w-20:20{out_label}"
+        )
+        return f"{fc_mod};{logo_chain}"
+
     # Check if split_screen mode (requires filter_complex)
-    if is_split_screen and crop_filter:
+    if _is_vertical:
+        # ── VERTICAL SOURCE MODE ──────────────────────────────────────────
+        # Source is already portrait — just scale to 1080x1920 (pad if not exact 9:16)
+        # No crop, no blur background, no face detection needed.
+        print(f"     • VERTICAL MODE: scale to 1080x1920 (no crop, no blur)")
+        rel_sub = (
+            str(subtitle_path.resolve()).replace('\\', '/').replace(':', '\\:')
+            if subtitle_path and subtitle_path.exists() else None
+        )
+        _pad = "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1"
+        _vf_chain = f"{_pad},subtitles={rel_sub}" if rel_sub else _pad
+
+        _master_chain = "acompressor=threshold=0.089:ratio=4:attack=5:release=50,alimiter=level_in=1:level_out=1:limit=0.891:attack=5:release=50:level=disabled"
+
+        _vf = ("setpts=PTS-STARTPTS," + _vf_chain) if _need_setpts else _vf_chain
+        _af_chain = ("asetpts=PTS-STARTPTS," + _master_chain) if _need_setpts else _master_chain
+        if _has_logo:
+            _video_fc = _with_logo(f"[0:v]{_vf}[out_v]", "[out_v]")
+            _audio_fc = f"[0:a]{_af_chain}[out_a]"
+            cmd_pass2.extend(["-filter_complex", f"{_video_fc};{_audio_fc}"])
+            cmd_pass2.extend(["-map", "[out_v]", "-map", "[out_a]"])
+        else:
+            cmd_pass2.extend(["-vf", _vf])
+            cmd_pass2.extend(["-af", _af_chain])
+        if rel_sub:
+            print(f"     • Subtitles: {rel_sub}")
+        print(f"     • Audio: acompressor -> alimiter")
+
+    elif is_split_screen and crop_filter:
         # Check if we have background video for "satisfying" mode
         if background_video_path and background_video_path.exists():
             print(f"     • SATISFYING SPLIT SCREEN MODE: Using -filter_complex with background video")
@@ -645,8 +698,7 @@ async def cut_video_segment_enhanced(
             print(f"     • Speaker crop: top 50% (1080x960)")
             print(f"     • Background: bottom 50% (1080x960, looped)")
             print(f"     • Final: 1080x1920 (9:16)")
-            
-            cmd_pass2.extend(["-filter_complex", filter_complex])
+            cmd_pass2.extend(["-filter_complex", _pts(_with_logo(filter_complex))])
             cmd_pass2.extend(["-map", "[out]"])  # Map video output
             cmd_pass2.extend(["-map", "0:a"])    # Map audio from speaker (mute background)
         else:
@@ -674,27 +726,38 @@ async def cut_video_segment_enhanced(
             
             # Combine all parts
             filter_complex = f"[0:v]{stable_zoom}[zoomed];{split_filter};{subtitle_filter}"
-            
+
             print(f"     • Zoom: scale+crop (no freeze)")
             print(f"     • Split Screen: split->crop->vstack")
             print(f"     • Scale: 1080x1920")
-            
-            cmd_pass2.extend(["-filter_complex", filter_complex])
+            cmd_pass2.extend(["-filter_complex", _pts(_with_logo(filter_complex))])
             cmd_pass2.extend(["-map", "[out]"])  # Map video output
             cmd_pass2.extend(["-map", "0:a"])    # Map audio from input
     else:
         # Standard single crop mode (use -vf or filter_complex for letterbox+blur)
         if letterbox_with_blur:
-            # Letterbox: scale to fit 1080x1920, fill black bars with blurred background
-            print(f"     • LETTERBOX + BLUR MODE")
+            # Blur background: original frame fits entirely in 9:16, blurred version fills the rest
+            print(f"     • BLUR BACKGROUND MODE (no face detected)")
             rel_sub = str(subtitle_path.resolve()).replace('\\', '/').replace(':', '\\:') if subtitle_path and subtitle_path.exists() else None
-            blur_filter = get_ffmpeg_blurred_background_filter("0:v", "blurred")
-            # Main branch: scale to fit, pad to 1080x1920
-            main_branch = "crop=trunc(ih*9/16/2)*2:ih,scale=1080:1920"
+            # [bg]: scale to fill 1080x1920, apply heavy blur
+            # [fg]: scale to fit inside 1080x1920 keeping aspect ratio
+            # overlay fg centered on blurred bg
             if rel_sub:
-                main_branch += f",subtitles={rel_sub}"
-            filter_complex = f"[0:v]split[main][bg];[bg]scale=iw*2:ih*2,boxblur=20,scale=1080:1920:force_original_aspect_ratio=decrease,crop=1080:1920[bg];[main]{main_branch}[main];[bg][main]overlay=(W-w)/2:(H-h)/2[out]"
-            cmd_pass2.extend(["-filter_complex", filter_complex])
+                filter_complex = (
+                    f"[0:v]split=2[fg_src][bg_src];"
+                    f"[bg_src]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:10[bg];"
+                    f"[fg_src]scale=1080:-1[fg];"
+                    f"[bg][fg]overlay=(W-w)/2:(H-h)/2[pre_sub];"
+                    f"[pre_sub]subtitles={rel_sub}[out]"
+                )
+            else:
+                filter_complex = (
+                    f"[0:v]split=2[fg_src][bg_src];"
+                    f"[bg_src]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:10[bg];"
+                    f"[fg_src]scale=1080:-1[fg];"
+                    f"[bg][fg]overlay=(W-w)/2:(H-h)/2[out]"
+                )
+            cmd_pass2.extend(["-filter_complex", _pts(_with_logo(filter_complex))])
             cmd_pass2.extend(["-map", "[out]", "-map", "0:a"])
         else:
             print(f"     • STANDARD MODE: Using filter_complex")
@@ -732,35 +795,39 @@ async def cut_video_segment_enhanced(
             print(f"     • Scale: 1080x1920")
 
             # ── Audio mastering chain ──────────────────────────────────
-            # Correct order: mix all tracks with volume weights FIRST,
-            # then apply loudnorm (EBU R128) + alimiter as the final stage.
-            # This prevents loudnorm from being defeated by post-mix peaks.
-            _loudnorm = loudnorm_filter()  # -16 LUFS, -1.5 dBTP, LRA=11
-            _limiter = "alimiter=level_in=1:level_out=1:limit=0.891:attack=5:release=50:level=disabled"
-            _master_chain = f"{_loudnorm},{_limiter}"
+            _master_chain = "acompressor=threshold=0.089:ratio=4:attack=5:release=50,alimiter=level_in=1:level_out=1:limit=0.891:attack=5:release=50:level=disabled"
 
             if sfx_path and sfx_path.exists():
                 cmd_pass2.extend(["-i", str(sfx_path)])
-                sfx_input_idx = 2 if (background_video_path and background_video_path.exists()) else 1
-                # Step 1: weight volumes before mixing
-                # Step 2: amix all tracks
-                # Step 3: loudnorm + alimiter as mastering stage
+                # SFX index: after main(0) + optional logo(logo_idx) → logo_idx+1 if logo, else 1
+                sfx_input_idx = (_logo_idx + 1) if _has_logo else (2 if (background_video_path and background_video_path.exists()) else 1)
                 audio_filter = (
                     f"[0:a]volume=1.0[main_a];"
                     f"[{sfx_input_idx}:a]adelay=0|0,volume=0.4[sfx_a];"
                     f"[main_a][sfx_a]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[mixed_a];"
                     f"[mixed_a]{_master_chain}[out_a]"
                 )
-                cmd_pass2.extend(["-filter_complex", f"[0:v]{video_chain}[out_v];{audio_filter}"])
+                _vfc = _pts(_with_logo(f"[0:v]{video_chain}[out_v]", "[out_v]"))
+                cmd_pass2.extend(["-filter_complex", f"{_vfc};{audio_filter}"])
                 cmd_pass2.extend(["-map", "[out_v]", "-map", "[out_a]"])
-                print(f"     • Audio: SFX mix -> loudnorm -16 LUFS -> alimiter -1.5 dBTP")
+                print(f"     • Audio: SFX mix -> acompressor -> alimiter")
             else:
-                cmd_pass2.extend(["-vf", video_chain])
-                cmd_pass2.extend(["-af", _master_chain])
-                print(f"     • Audio: loudnorm -16 LUFS -> alimiter -1.5 dBTP")
+                # No SFX
+                _af_chain = ("asetpts=PTS-STARTPTS," + _master_chain) if _need_setpts else _master_chain
+                if _has_logo:
+                    _vf_base = ("setpts=PTS-STARTPTS," + video_chain) if _need_setpts else video_chain
+                    _video_fc = _with_logo(f"[0:v]{_vf_base}[out_v]", "[out_v]")
+                    _audio_fc = f"[0:a]{_af_chain}[out_a]"
+                    cmd_pass2.extend(["-filter_complex", f"{_video_fc};{_audio_fc}"])
+                    cmd_pass2.extend(["-map", "[out_v]", "-map", "[out_a]"])
+                else:
+                    _vf = ("setpts=PTS-STARTPTS," + video_chain) if _need_setpts else video_chain
+                    cmd_pass2.extend(["-vf", _vf])
+                    cmd_pass2.extend(["-af", _af_chain])
+                print(f"     • Audio: acompressor -> alimiter")
     
     # Common encoding settings
-    cmd_pass2.extend(["-c:v", "libx264", "-preset", "ultrafast", "-crf", "23"])
+    cmd_pass2.extend(["-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-threads", "0"])
     cmd_pass2.extend(["-c:a", "aac", "-b:a", "128k"])
     
     # Output specs for compatibility
@@ -829,14 +896,14 @@ async def cut_video_segment_enhanced(
         print(f"FFmpeg stdout: {result_pass2.stdout.decode('utf-8', errors='replace') if isinstance(result_pass2.stdout, bytes) else str(result_pass2.stdout)}")
         raise subprocess.CalledProcessError(result_pass2.returncode, cmd_pass2, result_pass2.stdout, result_pass2.stderr)
     
-    print(f"  [OK] Pass 2 complete: Effects applied successfully")
-    
+    print(f"  [OK] Render complete: Effects + logo watermark applied in single pass")
+
     # ========== CLEANUP: DELETE TEMP FILE ==========
     if temp_cut_file.exists():
         temp_cut_file.unlink()
         print(f"  [OK] Cleanup: Temp file deleted")
     
-    print(f"  === TWO-PASS COMPLETE [OK] ===")
+    print(f"  === RENDER COMPLETE [OK] ===")
 
 
 @app.post("/auth/simple-login", response_model=_SimpleTokenResponse)
@@ -860,6 +927,31 @@ async def simple_me(request: Request):
     token = auth_header[7:]
     email = _verify_simple_token(token)
     return {"email": email}
+
+
+@app.post("/auth/json-login", response_model=_SimpleTokenResponse)
+async def json_login(body: _SimpleLoginRequest, db=Depends(get_db)):
+    """
+    JSON-based login: accepts {email, password}.
+    Checks admin credentials first, then falls back to DB users (registered via /auth/register).
+    """
+    from services.auth import verify_password
+    # 1. Try hardcoded admin account
+    if _hmac.compare_digest(body.email.lower().strip(), _ADMIN_EMAIL.lower()) and \
+       _hmac.compare_digest(body.password, _ADMIN_PASSWORD):
+        token = _make_simple_token(_ADMIN_EMAIL)
+        log.info("json_login_admin", email=_ADMIN_EMAIL)
+        return _SimpleTokenResponse(access_token=token)
+    # 2. Try DB user
+    from db.models import User
+    user = db.query(User).filter_by(email=body.email.lower().strip(), is_active=True).first()
+    _dummy = "$2b$12$KIXbKkDqzFbMnJqX5QvXeOmNKLhVqFwMPqRsT7uVwXyZaAbBcCdDe"
+    candidate_hash = user.hashed_password if user else _dummy
+    if not verify_password(body.password, candidate_hash) or not user:
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+    token = _make_simple_token(user.email)
+    log.info("json_login_user", user_id=str(user.id))
+    return _SimpleTokenResponse(access_token=token)
 
 
 @app.websocket("/ws/render-progress/{task_id}")
@@ -940,17 +1032,19 @@ def _run_yt_dlp_download(url: str, output_path: Path) -> dict:
     validate_resolved_ip("www.youtube.com")
 
     ydl_opts = {
-        'format': 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best[height<=1080]',
+        'format': 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best',
         'outtmpl': str(output_path),
         'merge_output_format': 'mp4',
         'quiet': False,
         'no_warnings': False,
-        # Anti-bot protection bypass
+        # Use iOS/Android client — no JS n-challenge required, formats available directly
         'extractor_args': {
             'youtube': {
-                'player_client': ['web'],
+                'player_client': ['ios', 'android', 'web'],
             },
         },
+        # Parallel fragment download (speeds up segmented streams 3-4x)
+        'concurrent_fragment_downloads': 4,
         # Prefer native downloaders to reduce TLS/FFmpeg pull failures
         'hls_prefer_native': True,
         'downloader': {'http': 'native', 'https': 'native'},
@@ -1236,7 +1330,7 @@ async def transcribe_video(
     
     try:
         video_duration = get_video_duration(input_file)
-        audio_file = OUTPUT_DIR / f"{file_id}_audio.wav"
+        audio_file = OUTPUT_DIR / f"{file_id}_audio.mp3"
         extract_audio(input_file, audio_file)
         
         try:
@@ -1354,6 +1448,7 @@ def patch_transcription(
 async def analyze_video(
     file_id: str,
     provider: str = "openai",
+    max_clips: int = 5,
     # current_user: User = Depends(get_current_user),  # TODO: Re-enable auth
 ):
     """HUMAN-IN-THE-LOOP: Analyze video and store candidates (no rendering yet)"""
@@ -1377,7 +1472,7 @@ async def analyze_video(
         video_duration = get_video_duration(input_file)
         
         analyzer = create_analyzer(provider=provider)
-        viral_clips = analyzer.analyze_transcription(transcription_text, video_duration)
+        viral_clips = analyzer.analyze_transcription(transcription_text, video_duration, max_clips=max_clips)
         
         # Generate thumbnails for candidates
         print(f"-> Generating thumbnails for {len(viral_clips)} candidates...")
@@ -1557,11 +1652,13 @@ class RenderClipRequest(BaseModel):
     manual_crop_x: Optional[int] = None  # Manual override for crop X position
     show_hook: bool = True  # Show AI hook text overlay (can be disabled for clean look)
     subtitle_style: str = "hormozi"  # hormozi | beast | minimal
+    subtitle_language: str = "auto"  # auto | ru | en
     enable_jump_cut: bool = False  # Cut silences >1.5s
     enable_sfx: bool = True  # Mix in pop/whoosh SFX from assets/sfx/
     use_semantic_chunking: bool = True  # Use semantic chunking for subtitles
     start_time: Optional[float] = None  # User-edited start time override (seconds)
     end_time: Optional[float] = None  # User-edited end time override (seconds)
+    render_mode: str = "auto"  # "auto" | "face_crop" | "blur_background"
 
 
 @app.post("/extract-clips/{file_id}")
@@ -1638,10 +1735,18 @@ async def extract_viral_clips(
             clip_path = CLIPS_DIR / clip_filename
             
             crop_filter = None
-            if reframer:
+            crop_preview = clip.get("crop_preview")
+
+            # Detect no-face mode: use blur background instead of smart crop
+            _preview_mode = (crop_preview or {}).get("mode", "center_crop")
+            _has_face = _preview_mode not in ("center_crop", None) and bool((crop_preview or {}).get("faces"))
+            _force_blur = not _has_face and _preview_mode != "split_screen"
+
+            if _force_blur:
+                print(f"  -> No face detected (mode={_preview_mode}) — using blur background mode")
+            elif reframer:
                 try:
                     # Pass crop_preview for split_screen mode support
-                    crop_preview = clip.get("crop_preview")
                     crop_filter = reframer.get_crop_filter(
                         input_file,
                         clip["start_time"],
@@ -1713,7 +1818,8 @@ async def extract_viral_clips(
                     crop_filter=crop_filter,
                     zoom_filter=zoom_filter,
                     video_fps=video_info['fps'] if video_info else None,
-                    is_split_screen=is_split_screen_mode
+                    is_split_screen=is_split_screen_mode,
+                    letterbox_with_blur=_force_blur,
                 )
                 print(f"[OK] Clip {idx + 1} rendered successfully: {clip_filename}")
                 
@@ -1838,11 +1944,13 @@ async def render_clip_with_progress(
             "manual_crop_x": request.manual_crop_x,
             "show_hook": request.show_hook,
             "subtitle_style": request.subtitle_style,
+            "subtitle_language": request.subtitle_language,
             "enable_jump_cut": request.enable_jump_cut,
             "enable_sfx": request.enable_sfx,
             "use_semantic_chunking": request.use_semantic_chunking,
             "start_time_override": request.start_time,
             "end_time_override": request.end_time,
+            "render_mode": request.render_mode,
         }
         print(f"  -> Queueing job with task_id={task_id}")
         await render_queue.put(job)
