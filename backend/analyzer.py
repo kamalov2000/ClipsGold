@@ -174,7 +174,7 @@ Return ONLY the hook text, nothing else."""
         Analyze transcription with hybrid provider logic.
         Tries active provider first, falls back to secondary if available.
         """
-        prompt = f"""You are an expert viral content strategist. Analyze this video transcription and find the TOP {max_clips} most viral-worthy clips.
+        prompt = f"""Find exactly {max_clips} viral-worthy clips from this transcript. Return a JSON object with a "clips" array containing exactly {max_clips} items (or fewer only if the video is too short).
 
 Video Duration: {video_duration} seconds
 Transcription:
@@ -205,35 +205,39 @@ For each clip, provide:
 9. emojis: Array of 2-3 relevant emojis that match the emotion/topic (e.g., ["🔥", "💰", "😱"])
 10. content_preview: Brief excerpt of what's said
 
-Return ONLY valid JSON array:
-[
-  {{
-    "start_time": 0.0,
-    "end_time": 45.5,
-    "title": "The Secret They Don't Want You To Know",
-    "description": "This revelation will change how you see everything. Watch till the end! 🤯",
-    "hashtags": ["#viral", "#mindblown", "#truth", "#fyp", "#motivation"],
-    "reason": "Controversial claim with emotional hook",
-    "virality_score": 8,
-    "hook_text": "WAIT FOR THIS",
-    "emojis": ["🤯", "🔥"],
-    "content_preview": "Brief excerpt..."
-  }}
-]
+Return a JSON object in this exact format:
+{{
+  "clips": [
+    {{
+      "start_time": 0.0,
+      "end_time": 45.5,
+      "title": "The Secret They Don't Want You To Know",
+      "description": "This revelation will change how you see everything. Watch till the end! 🤯",
+      "hashtags": ["#viral", "#mindblown", "#truth", "#fyp", "#motivation"],
+      "reason": "Controversial claim with emotional hook",
+      "virality_score": 8,
+      "hook_text": "WAIT FOR THIS",
+      "emojis": ["🤯", "🔥"],
+      "content_preview": "Brief excerpt..."
+    }}
+  ]
+}}
 
-Return ONLY the JSON array, no other text."""
+IMPORTANT: The "clips" array MUST contain exactly {max_clips} elements."""
 
         content = None
         clips = None
-        
+
+        print(f"[DEBUG] analyze_transcription called: max_clips={max_clips}, video_duration={video_duration:.1f}s")
+
         if self.openai_client:
             for attempt in range(1, 4):
                 try:
-                    print(f"Calling OpenAI API (attempt {attempt}/3) with model: {self.openai_model}")
+                    print(f"Calling OpenAI API (attempt {attempt}/3) with model: {self.openai_model}, requesting {max_clips} clips")
                     response = self.openai_client.chat.completions.create(
                         model=self.openai_model,
                         messages=[
-                            {"role": "system", "content": "You are a viral content expert. Always respond with ONLY a valid JSON array, no other text or markdown."},
+                            {"role": "system", "content": f"You are a viral content expert. Always respond with a valid JSON object containing a 'clips' array with exactly {max_clips} items."},
                             {"role": "user", "content": prompt}
                         ],
                         temperature=0.7,
@@ -242,13 +246,19 @@ Return ONLY the JSON array, no other text."""
                     content = response.choices[0].message.content
                     print(f"[OK] OpenAI API response received ({len(content)} chars)")
                     result = json.loads(content)
-                    if isinstance(result, dict) and "clips" in result:
-                        clips = result["clips"]
-                    elif isinstance(result, list):
+                    if isinstance(result, list):
                         clips = result
+                    elif isinstance(result, dict):
+                        # Try common wrapper keys GPT might use
+                        for key in ("clips", "viral_clips", "moments", "results", "data"):
+                            if key in result and isinstance(result[key], list):
+                                clips = result[key]
+                                break
+                        else:
+                            clips = [result]
                     else:
                         clips = [result]
-                    print(f"[OK] Parsed {len(clips)} clips from OpenAI")
+                    print(f"[OK] Parsed {len(clips)} clips from OpenAI (requested {max_clips})")
                     break
                 except Exception as e:
                     wait = 2 ** (attempt - 1)

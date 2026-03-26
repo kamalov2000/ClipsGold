@@ -1452,6 +1452,7 @@ async def analyze_video(
     # current_user: User = Depends(get_current_user),  # TODO: Re-enable auth
 ):
     """HUMAN-IN-THE-LOOP: Analyze video and store candidates (no rendering yet)"""
+    print(f"[DEBUG] /analyze/{file_id} called: provider={provider}, max_clips={max_clips}")
     input_file = UPLOAD_DIR / f"{file_id}.mp4"
     transcription_file = OUTPUT_DIR / f"{file_id}_transcription.json"
     
