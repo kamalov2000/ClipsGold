@@ -19,6 +19,7 @@ interface Candidate {
   reason: string
   virality_score: number
   hook: string
+  why_hook_works?: string
   emojis?: string[]
   thumbnail_url?: string
   crop_preview?: {
@@ -817,6 +818,11 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
                         <p className="text-sm font-black text-gray-800 tracking-wide">
                           🔥 HOOK: {candidate.hook}
                         </p>
+                        {candidate.why_hook_works && (
+                          <span className="mt-1 inline-block px-2 py-0.5 bg-orange-500 text-white text-xs font-bold rounded-full uppercase tracking-wider">
+                            {candidate.why_hook_works}
+                          </span>
+                        )}
                       </div>
                     )}
                     {candidate.emojis && candidate.emojis.length > 0 && (

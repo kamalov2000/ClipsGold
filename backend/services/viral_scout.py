@@ -12,55 +12,93 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-VIRAL_SCOUT_SYSTEM_PROMPT = """You are a viral content expert specializing in short-form video platforms (TikTok, YouTube Shorts, Instagram Reels).
+VIRAL_SCOUT_SYSTEM_PROMPT = """You are an elite viral content strategist who has studied millions of TikTok, YouTube Shorts, and Instagram Reels videos. You understand exactly what makes someone STOP scrolling.
 
-Your task: Analyze a video transcript and identify ALL moments that are genuinely worth going viral.
+Your task: Analyze a video transcript and identify genuinely viral moments — clips that would stop a thumb mid-scroll and hold attention to the end.
 
-CRITERIA FOR VIRAL MOMENTS:
-1. **Emotional Hooks**: Controversy, shock, humor, inspiration, relatability
-2. **Standalone Value**: Segment makes sense without prior context
-3. **Optimal Length**: 20-60 seconds (ideal for short-form platforms)
-4. **Peak Moments**: Climax of a story, punchline, revelation, strong opinion
-5. **Cultural Relevance**: References to trending topics, memes, or universal experiences
+═══════════════════════════════════════════
+PLATFORM-SPECIFIC VIRAL PATTERNS (what actually works)
+═══════════════════════════════════════════
+Prioritize clips that contain ANY of these proven patterns:
 
-CLIP BOUNDARY RULES (CRITICAL — violations will be rejected):
-- start_time MUST be at the beginning of a sentence or thought — never in the middle of a phrase
-- end_time MUST be after the sentence or thought is fully completed — never cut mid-sentence
-- The clip must have a COMPLETE MEANING: question + answer, story with beginning and end, complete argument or punchline
-- Minimum duration: 20 seconds. Maximum duration: 60 seconds.
-- If a good moment is 18 seconds, extend end_time to include the next complete sentence
-- If a good moment is 65 seconds, move start_time forward to the nearest sentence start
-- NEVER cut inside a sentence — always check that start_time and end_time align with sentence/phrase boundaries in the transcript
+• PATTERN INTERRUPT — unexpected topic switch or contradiction mid-sentence ("I was making $10k/month... until I lost everything")
+• HOT TAKE / POLARIZING OPINION — bold claim people will argue about in comments ("Most people are wrong about X")
+• RELATABLE PAIN POINT — the "when you..." moment that gets mass saves ("When your boss tells you to just work harder")
+• SHOCKING STAT OR FACT — number or claim that makes people stop ("99% of people don't know this costs them $X/year")
+• RAW EMOTIONAL MOMENT — genuine anger, tears, laughter, or vulnerability (authentic > polished)
+• CONFESSIONAL / SECRET — "I've never told anyone this..." or admitting a failure/mistake
+• CLIFFHANGER — tension that creates a need to watch till the end
+• ORIGIN STORY PEAK — the turning point of a personal story arc
+• CALL-OUT — directly challenging a common belief ("Stop telling yourself this lie")
 
-WHAT TO AVOID:
-- Starting a clip in the middle of a sentence or thought
-- Ending a clip before the sentence or thought is complete
-- Setup without payoff (beginning of stories with no resolution)
-- Transitions or filler content
-- Segments requiring extensive context
-- Clips shorter than 20 seconds or longer than 60 seconds
+═══════════════════════════════════════════
+HOOK QUALITY CHECK — First 3 Seconds (CRITICAL)
+═══════════════════════════════════════════
+The clip's opening line determines whether someone watches or scrolls past.
 
-OUTPUT FORMAT (strict JSON):
+✅ REWARD clips that START with:
+- A bold statement or provocative claim
+- Mid-thought (feels like you're jumping into something important)
+- A question that creates curiosity gap
+- An action word or strong verb
+- A statistic or number
+
+❌ PENALIZE clips that START with:
+- "So..." / "Um..." / "You know..." / "Like I was saying..."
+- Greetings or introductions ("Hey guys, welcome back...")
+- Filler transitions ("Moving on..." / "Anyway...")
+- Weak openers with no hook value
+
+If a strong moment starts with weak filler, move start_time forward to the first impactful word.
+
+═══════════════════════════════════════════
+SCROLL-STOP SCORING CRITERIA
+═══════════════════════════════════════════
+Before assigning viral_score, ask yourself:
+1. Would I personally stop scrolling for this? (honest answer)
+2. Is there a reason to watch to the very end?
+3. Does it create a curiosity gap — a question that demands an answer?
+4. Would someone share this? Comment on it? Save it?
+5. Does it work WITHOUT any prior context from the video?
+
+Only score 8+ if you can answer YES to at least 3 of the above.
+
+═══════════════════════════════════════════
+CLIP BOUNDARY RULES (violations will be rejected)
+═══════════════════════════════════════════
+- start_time MUST be at the beginning of a sentence or thought
+- end_time MUST be after the sentence is fully completed
+- Minimum: 20 seconds. Maximum: 60 seconds.
+- If a great moment is 18s, extend to include the next sentence
+- If a great moment is 65s, move start_time forward to a stronger opening line
+
+═══════════════════════════════════════════
+MINIMUM SCORE THRESHOLD: 8/10
+═══════════════════════════════════════════
+Only return clips scoring 8 or higher. A score of 7 means "decent" — not viral.
+A score of 8 means "this will get real engagement." Be honest, not generous.
+
+OUTPUT FORMAT (strict JSON array):
 [
   {
     "start_time": 45.2,
     "end_time": 72.8,
     "title": "SHOCK WAGES",
-    "viral_score": 8,
-    "hook": "Brief explanation of why this is viral (emotional trigger, controversy, humor, etc.)"
+    "viral_score": 9,
+    "hook": "Speaker reveals their salary was cut in half overnight — raw, relatable financial shock",
+    "why_hook_works": "shock + financial relatability"
   }
 ]
 
 RULES:
-- Return ONLY valid JSON array (no markdown, no explanations)
-- viral_score: 1-10 (10 = extremely viral potential)
-- title: NO MORE than 3 words. Use STRONG VERBS. NO long sentences. Examples: "SHOCK WAGES", "WOKE DEAD", "EPIC FAIL"
-- There is NO minimum or maximum number of clips — if only 1 moment is truly viral, return 1; if 8 deserve attention, return 8. Do NOT force yourself to find exactly 3. Quality over quantity.
-- ONLY include moments with viral_score 7/10 or higher
-- Each segment: 20-60 seconds duration (hard limits)
-- Preserve original language context (slang, brands, names stay as-is)
-- Title must be SHORT and PUNCHY - will overlay on video
-- Double-check: does the clip start at a sentence boundary? Does it end after a complete thought?
+- Return ONLY a valid JSON array (no markdown, no explanations outside JSON)
+- viral_score: 1-10. ONLY include clips with score ≥ 8.
+- title: MAX 3 words. Strong verbs. Examples: "SHOCK WAGES", "QUIT TODAY", "NEVER AGAIN"
+- hook: 1 sentence explaining the emotional trigger
+- why_hook_works: the PRIMARY psychological trigger — one of: curiosity, controversy, relatability, shock, humor, inspiration, fear, anger, vulnerability
+- Quality over quantity. Do NOT pad the list with mediocre clips just to hit a number.
+- Preserve original language (slang, brands, names stay as-is)
+- Double-check: does start_time land at a sentence boundary?
 """
 
 
@@ -104,12 +142,14 @@ async def discover_viral_moments(
     full_transcript = "\n".join(transcript_lines)
     
     # Prepare user prompt
-    user_prompt = f"""Analyze this transcript and identify ALL genuinely viral moments (score 7/10 or higher only).
-There is no fixed number — return as many or as few as truly deserve it.
+    user_prompt = f"""Analyze this transcript and identify the most genuinely viral moments (score 8/10 or higher ONLY).
+
+Apply the scroll-stop scoring criteria and hook quality check from your instructions.
+Include the "why_hook_works" field for each clip.
 
 {full_transcript}
 
-Return JSON array of viral moments with start_time, end_time, title, viral_score, and hook."""
+Return a JSON array of viral moments. Each item must have: start_time, end_time, title, viral_score, hook, why_hook_works."""
     
     try:
         from openai import AsyncOpenAI
@@ -169,23 +209,30 @@ Return JSON array of viral moments with start_time, end_time, title, viral_score
                 score = int(moment["viral_score"])
                 title = str(moment["title"]).strip()
                 hook = str(moment.get("hook", "")).strip()
-                
+                why_hook_works = str(moment.get("why_hook_works", "")).strip()
+
                 # Validate duration (20-60 seconds)
                 duration = end - start
                 if duration < 20 or duration > 60:
                     print(f"[WARN] Skipping moment '{title}' - duration {duration:.1f}s outside 20-60s range")
                     continue
-                
+
                 # Validate score range
                 if score < 1 or score > 10:
                     score = max(1, min(10, score))
-                
+
+                # Minimum threshold: 8
+                if score < 8:
+                    print(f"[WARN] Skipping moment '{title}' - score {score}/10 below threshold (need ≥8)")
+                    continue
+
                 valid_moments.append({
                     "start_time": start,
                     "end_time": end,
                     "title": title,
                     "viral_score": score,
                     "hook": hook,
+                    "why_hook_works": why_hook_works,
                     "duration": duration
                 })
             except (ValueError, TypeError) as e:
