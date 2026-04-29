@@ -15,7 +15,7 @@ REPO_URL="https://github.com/kamalov2000/ClipsGold"
 DOMAIN="clipsgold.ru"
 API_DOMAIN="api.clipsgold.ru"
 EMAIL="akamalov781@gmail.com"
-ENV_FILE="./backend/.env"
+ENV_FILE="./.env"
 
 log()  { echo -e "\n\033[1;34m==> $1\033[0m"; }
 ok()   { echo -e "\033[1;32m    [OK] $1\033[0m"; }
@@ -81,21 +81,10 @@ ok "Repository ready at $APP_DIR"
 log "Step 4/7: Configuring .env on server"
 ssh "$SERVER" "
 APP_DIR='$APP_DIR'
-DOMAIN='$DOMAIN'
 set -e
-mkdir -p \"\$APP_DIR/backend\"
-cp /tmp/clipsgold.env \"\$APP_DIR/backend/.env\"
+cp /tmp/clipsgold.env \"\$APP_DIR/.env\"
 rm /tmp/clipsgold.env
-
-# Switch to PostgreSQL (Docker container)
-sed -i 's|^DATABASE_URL=sqlite.*|DATABASE_URL=postgresql+psycopg2://clipsgold:clipsgold@postgres:5432/clipsgold|' \"\$APP_DIR/backend/.env\" || true
-# Ensure we're not accidentally using a remote Postgres
-sed -i 's|^DATABASE_URL=postgresql.*@localhost.*|DATABASE_URL=postgresql+psycopg2://clipsgold:clipsgold@postgres:5432/clipsgold|' \"\$APP_DIR/backend/.env\" || true
-
-sed -i 's|^ENVIRONMENT=.*|ENVIRONMENT=production|' \"\$APP_DIR/backend/.env\"
-sed -i 's|^CORS_ORIGINS=.*|CORS_ORIGINS=https://\${DOMAIN},https://www.\${DOMAIN}|' \"\$APP_DIR/backend/.env\" || true
-
-echo '.env configured'
+echo '.env placed at \$APP_DIR/.env'
 "
 ok ".env placed"
 
@@ -106,9 +95,6 @@ APP_DIR='$APP_DIR'
 set -e
 cd \"\$APP_DIR\"
 mkdir -p certbot/conf certbot/www
-
-# Read POSTGRES_PASSWORD from .env (default: clipsgold)
-export POSTGRES_PASSWORD=\$(grep '^POSTGRES_PASSWORD=' backend/.env | cut -d= -f2 || echo 'clipsgold')
 
 # Pull public images, build app images
 docker compose pull postgres redis 2>/dev/null || true
