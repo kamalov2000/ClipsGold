@@ -1,357 +1,432 @@
 import os
 import json
 import random
+import re
 import time
 from typing import List, Dict, Optional
 
-# Optional imports for AI providers (not needed for mock mode)
 try:
-    from openai import OpenAI
-    OPENAI_AVAILABLE = True
-except Exception:
-    OPENAI_AVAILABLE = False
-    OpenAI = None
+    import anthropic
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    ANTHROPIC_AVAILABLE = False
+    anthropic = None  # type: ignore
 
+
+# ── System prompt shared across all Claude calls ──────────────
+_SYSTEM_PROMPT = (
+    "You are an expert viral content analyst specialising in short-form video "
+    "for TikTok, Instagram Reels, and YouTube Shorts. "
+    "You identify moments with the highest chance of being shared, saved, and driving follower growth. "
+    "Always respond with valid JSON only — no markdown fences, no explanations outside the JSON."
+)
+
+
+def _build_analysis_prompt(
+    transcription: str,
+    video_duration: float,
+    min_clips: int,
+    max_clips: int,
+) -> str:
+    return f"""Analyze the transcript below and identify between {min_clips} and {max_clips} viral-worthy moments.
+
+Video duration: {video_duration:.1f} seconds ({video_duration / 60:.1f} minutes)
+
+## TRANSCRIPT:
+{transcription}
+
+## EVALUATION — each clip must score strongly on at least one dimension:
+
+EMOTION (pick the best match):
+  - laugh        : humour or absurdity that catches the viewer off guard
+  - surprise     : information that defies expectations or common knowledge
+  - conflict     : disagreement, confrontation, or tension between parties
+  - mood_shift   : sharp transition from calm to intense, or serious to funny
+
+STRUCTURE (pick the best match):
+  - twist             : the ending subverts or contradicts the setup
+  - counter_intuitive : a claim that sounds wrong but turns out to be true
+  - story_arc         : complete narrative — setup, escalation, resolution — within one clip
+
+HOOK QUALITY (pick the best match):
+  - question    : clip opens with a compelling question or unsolved mystery
+  - provocation : clip opens with a bold, controversial, or challenging statement
+  - punchline   : clip builds to a clear, memorable conclusion or reveal
+
+## CLIP RULES:
+- Length: minimum 30 seconds, maximum 90 seconds
+- No overlapping clips
+- Start at a natural sentence or pause boundary
+- End at a natural sentence ending or pause
+- Spread clips across the full video — do not cluster them at the start
+- Prefer diversity: vary emotion types and moments from different parts of the video
+
+## OUTPUT FORMAT (return ONLY this JSON object, no other text):
+{{
+  "clips": [
+    {{
+      "start_time": 12.5,
+      "end_time": 58.3,
+      "title": "Catchy title in 5-8 words",
+      "opening_line": "Exact first sentence spoken in this clip",
+      "hook": "3-5 WORD ALL-CAPS HOOK FOR VIDEO OVERLAY",
+      "moment_type": "emotion",
+      "emotion_trigger": "surprise",
+      "structure_type": "counter_intuitive",
+      "hook_type": "provocation",
+      "best_platform": "TikTok",
+      "virality_score": 8,
+      "reason": "Specific explanation of why this will go viral — what makes it shareable (2-3 sentences).",
+      "emojis": ["😱", "🔥"]
+    }}
+  ]
+}}
+
+Identify the {min_clips}–{max_clips} highest-potential moments. Use precise timestamps aligned to sentence boundaries."""
+
+
+# ── Mock analyzer (no API calls — for testing) ────────────────
 
 class MockAnalyzer:
-    """Mock analyzer for testing without API keys"""
-    
+    """Returns deterministic fake clips for pipeline testing."""
+
     def __init__(self, provider: str = "mock"):
         self.provider = "mock"
-    
-    def analyze_transcription(self, transcription: str, video_duration: float, max_clips: int = 5) -> List[Dict]:
-        clips = []
 
-        # Generate mock clips based on video duration
-        clip_duration = 30.0
-        max_clips = min(max_clips, int(video_duration / clip_duration))
-        
+    def analyze_transcription(
+        self, transcription: str, video_duration: float, max_clips: int = 5
+    ) -> List[Dict]:
+        clip_duration = 45.0
+        count = min(max_clips, max(1, int(video_duration / clip_duration)))
+
         titles = [
             "Epic Opening Hook",
             "Mind-Blowing Revelation",
             "Powerful Conclusion",
             "Golden Moment",
-            "Viral-Worthy Segment"
+            "Viral-Worthy Segment",
         ]
-        
         reasons = [
             "Strong emotional hook that grabs attention immediately",
             "Surprising insight that creates curiosity and engagement",
             "Powerful delivery with high energy and memorable content",
             "Perfect pacing with actionable value for viewers",
-            "Authentic moment that resonates with the audience"
+            "Authentic moment that resonates with the audience",
         ]
-        
-        hooks = [
-            "WAIT FOR IT",
-            "THIS IS INSANE",
-            "MIND BLOWN",
-            "WATCH THIS",
-            "YOU WON'T BELIEVE"
-        ]
-        
-        for i in range(max_clips):
-            start_time = i * clip_duration
-            end_time = min(start_time + clip_duration, video_duration)
-            
-            if end_time - start_time < 10:  # Skip if less than 10 seconds
+        hooks = ["WAIT FOR IT", "THIS IS INSANE", "MIND BLOWN", "WATCH THIS", "YOU WON'T BELIEVE"]
+        platforms = ["TikTok", "Reels", "Shorts"]
+
+        clips = []
+        for i in range(count):
+            start = i * clip_duration
+            end = min(start + clip_duration, video_duration)
+            if end - start < 10:
                 continue
-            
             clips.append({
-                "start_time": round(start_time, 2),
-                "end_time": round(end_time, 2),
+                "start_time": round(start, 2),
+                "end_time": round(end, 2),
                 "title": titles[i % len(titles)],
-                "description": f"This clip will blow your mind! {reasons[i % len(reasons)]} Don't miss it! 🔥",
-                "hashtags": ["#viral", "#fyp", "#trending", "#motivation", "#mindset", "#success"],
+                "opening_line": "Here's the moment you've been waiting for...",
+                "hook": hooks[i % len(hooks)],
+                "moment_type": "emotion",
+                "emotion_trigger": "surprise",
+                "structure_type": "story_arc",
+                "hook_type": "provocation",
+                "best_platform": platforms[i % len(platforms)],
                 "reason": reasons[i % len(reasons)],
                 "virality_score": random.randint(7, 10),
-                "hook": hooks[i % len(hooks)],
-                "emojis": ["🔥", "💯"]
+                "emojis": ["🔥", "💯"],
             })
-        
-        # If no clips generated, create at least one
+
         if not clips and video_duration >= 10:
             clips.append({
                 "start_time": 0.0,
-                "end_time": min(30.0, video_duration),
+                "end_time": min(45.0, video_duration),
                 "title": "Viral Clip",
+                "opening_line": "You won't believe what happens next...",
+                "hook": "WATCH THIS",
+                "moment_type": "emotion",
+                "emotion_trigger": "surprise",
+                "structure_type": "story_arc",
+                "hook_type": "provocation",
+                "best_platform": "TikTok",
                 "reason": "Engaging content with high viral potential",
                 "virality_score": 8,
-                "hook": "WATCH THIS"
+                "emojis": ["🔥", "💯"],
             })
-        
+
         return clips
 
 
-class ViralClipAnalyzer:
-    def __init__(self, provider: str = "openai"):
-        """
-        Initialize analyzer with OpenAI GPT-4o.
-        """
-        self.provider = "openai"
-        self.openai_client = None
-        self.active_provider = None
-        
-        if OPENAI_AVAILABLE and os.getenv("OPENAI_API_KEY"):
-            try:
-                self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-                self.openai_model = "gpt-4o-mini"
-                self.active_provider = "openai"
-                print(f"[OK] OpenAI client initialized with model: {self.openai_model}")
-            except Exception as e:
-                print(f"[WARN] OpenAI initialization failed: {e}")
-        
-        if not self.active_provider:
+# ── Claude-powered analyzer ───────────────────────────────────
+
+class ClaudeAnalyzer:
+    """Viral clip analyzer powered by Claude claude-sonnet-4-5."""
+
+    _MODEL = "claude-sonnet-4-5"
+
+    def __init__(self, provider: str = "claude"):
+        self.provider = "claude"
+
+        if not ANTHROPIC_AVAILABLE:
             raise ValueError(
-                "No AI provider available. Please set OPENAI_API_KEY. "
-                "Install: pip install openai"
+                "anthropic SDK is not installed. Run: pip install 'anthropic>=0.40.0'"
             )
-        
-        print(f"[INFO] Active Provider: {self.active_provider.upper()}")
-    
-    def generate_hook(self, clip_title: str, clip_reason: str, transcription_segment: str) -> str:
-        prompt = f"""Generate a SHORT, attention-grabbing hook text (3-5 words MAX) for a viral video clip.
 
-Clip Title: {clip_title}
-Why It's Viral: {clip_reason}
-Content Preview: {transcription_segment[:200]}
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise ValueError(
+                "ANTHROPIC_API_KEY is not set. Add it to your .env file."
+            )
 
-The hook should:
-- Be 3-5 words MAXIMUM
-- Create curiosity or urgency
-- Use powerful emotional words
-- Be in ALL CAPS format
-- Grab attention immediately
+        self.client = anthropic.Anthropic(api_key=api_key)
+        print(f"[OK] ClaudeAnalyzer initialised: {self._MODEL}")
 
-Examples of good hooks:
-- "WAIT FOR IT"
-- "THIS CHANGED EVERYTHING"
-- "YOU WON'T BELIEVE THIS"
-- "THE SECRET REVEALED"
-- "MIND = BLOWN"
+    # ── Public interface (identical to original ViralClipAnalyzer) ──
 
-Return ONLY the hook text, nothing else."""
-
-        hook = None
-        
-        if self.openai_client:
-            for attempt in range(1, 4):
-                try:
-                    response = self.openai_client.chat.completions.create(
-                        model=self.openai_model,
-                        messages=[
-                            {"role": "system", "content": "You are a viral content expert. Generate short, punchy hooks."},
-                            {"role": "user", "content": prompt}
-                        ],
-                        temperature=0.8,
-                        max_tokens=20
-                    )
-                    hook = response.choices[0].message.content.strip()
-                    print(f"[OK] OpenAI hook generated: {hook}")
-                    break
-                except Exception as e:
-                    wait = 2 ** (attempt - 1)
-                    print(f"[WARN] OpenAI hook attempt {attempt}/3 failed: {e}. Retrying in {wait}s...")
-                    time.sleep(wait)
-        
-        # Final fallback to default
-        if not hook:
-            print("→ Using default hook")
-            return "WATCH THIS"
-        
-        # Clean up hook
-        hook = hook.strip('"\'')
-        hook = hook.upper()
-        
-        words = hook.split()
-        if len(words) > 5:
-            hook = ' '.join(words[:5])
-        
-        return hook
-    
-    def analyze_transcription(self, transcription: str, video_duration: float, max_clips: int = 5) -> List[Dict]:
-        """
-        Analyze transcription with hybrid provider logic.
-        Tries active provider first, falls back to secondary if available.
-        """
-        prompt = f"""Find exactly {max_clips} viral-worthy clips from this transcript. Return a JSON object with a "clips" array containing exactly {max_clips} items (or fewer only if the video is too short).
-
-Video Duration: {video_duration} seconds
-Transcription:
-{transcription}
-
-FIND CLIPS BASED ON:
-- Semantic hooks (controversial statements, bold claims, shocking revelations)
-- Emotional peaks (anger, excitement, surprise, inspiration)
-- Complete thoughts (not mid-sentence cuts)
-- Pattern interrupts (unexpected twists, "wait what?" moments)
-- Actionable insights ("here's how to...")
-
-CLIP LENGTH RULES:
-- Minimum: 15 seconds (complete thought)
-- Maximum: 60 seconds (attention span)
-- Variable length based on content (NOT fixed 30s blocks)
-- Each clip must be a COMPLETE idea or story arc
-
-For each clip, provide:
-1. start_time: When the clip starts (seconds)
-2. end_time: When the clip ends (seconds) - based on natural pause/completion
-3. title: Catchy, curiosity-driven title (5-8 words)
-4. description: Engaging description for social media post (2-3 sentences, 150-200 chars)
-5. hashtags: Array of 5-8 relevant hashtags (e.g., ["#viral", "#motivation", "#mindset"])
-6. reason: Why this will go viral (be specific)
-7. virality_score: 1-10 (be honest, not everything is a 9)
-8. hook_text: 3-5 word ALL CAPS hook that appears at top of video
-9. emojis: Array of 2-3 relevant emojis that match the emotion/topic (e.g., ["🔥", "💰", "😱"])
-10. content_preview: Brief excerpt of what's said
-
-Return a JSON object in this exact format:
-{{
-  "clips": [
-    {{
-      "start_time": 0.0,
-      "end_time": 45.5,
-      "title": "The Secret They Don't Want You To Know",
-      "description": "This revelation will change how you see everything. Watch till the end! 🤯",
-      "hashtags": ["#viral", "#mindblown", "#truth", "#fyp", "#motivation"],
-      "reason": "Controversial claim with emotional hook",
-      "virality_score": 8,
-      "hook_text": "WAIT FOR THIS",
-      "emojis": ["🤯", "🔥"],
-      "content_preview": "Brief excerpt..."
-    }}
-  ]
-}}
-
-IMPORTANT: The "clips" array MUST contain exactly {max_clips} elements."""
-
-        content = None
-        clips = None
-
-        print(f"[DEBUG] analyze_transcription called: max_clips={max_clips}, video_duration={video_duration:.1f}s")
-
-        if self.openai_client:
-            for attempt in range(1, 4):
-                try:
-                    print(f"Calling OpenAI API (attempt {attempt}/3) with model: {self.openai_model}, requesting {max_clips} clips")
-                    response = self.openai_client.chat.completions.create(
-                        model=self.openai_model,
-                        messages=[
-                            {"role": "system", "content": f"You are a viral content expert. Always respond with a valid JSON object containing a 'clips' array with exactly {max_clips} items."},
-                            {"role": "user", "content": prompt}
-                        ],
-                        temperature=0.7,
-                        response_format={"type": "json_object"}
-                    )
-                    content = response.choices[0].message.content
-                    print(f"[OK] OpenAI API response received ({len(content)} chars)")
-                    result = json.loads(content)
-                    if isinstance(result, list):
-                        clips = result
-                    elif isinstance(result, dict):
-                        # Try common wrapper keys GPT might use
-                        for key in ("clips", "viral_clips", "moments", "results", "data"):
-                            if key in result and isinstance(result[key], list):
-                                clips = result[key]
-                                break
-                        else:
-                            clips = [result]
-                    else:
-                        clips = [result]
-                    print(f"[OK] Parsed {len(clips)} clips from OpenAI (requested {max_clips})")
-                    break
-                except Exception as e:
-                    wait = 2 ** (attempt - 1)
-                    print(f"[WARN] OpenAI analysis attempt {attempt}/3 failed: {e}. Retrying in {wait}s...")
-                    time.sleep(wait)
-        
-        # Final check
-        if not clips:
-            raise Exception("OpenAI analysis failed after 3 attempts. Check OPENAI_API_KEY and network.")
-        
-        validated_clips = self._validate_clips(clips, video_duration, max_clips=max_clips)
-        return validated_clips
-    
-    def _parse_fallback(self, content: str) -> List[Dict]:
-        content = content.strip()
-        if content.startswith("```json"):
-            content = content[7:]
-        if content.startswith("```"):
-            content = content[3:]
-        if content.endswith("```"):
-            content = content[:-3]
-        content = content.strip()
-        
+    def generate_hook(
+        self,
+        clip_title: str,
+        clip_reason: str,
+        transcription_segment: str,
+    ) -> str:
+        """Generate a 3-5 word ALL-CAPS overlay hook via Claude."""
+        prompt = (
+            f"Generate a 3-5 word ALL CAPS hook for a viral video overlay.\n\n"
+            f"Title: {clip_title}\n"
+            f"Why viral: {clip_reason}\n"
+            f"Content excerpt: {transcription_segment[:200]}\n\n"
+            "Return ONLY the hook text — nothing else.\n"
+            "Examples: WAIT FOR THIS | YOU WON'T BELIEVE | THIS CHANGES EVERYTHING"
+        )
         try:
-            result = json.loads(content)
-            if isinstance(result, list):
-                return result
-            elif isinstance(result, dict):
-                if "clips" in result:
-                    return result["clips"]
-                return [result]
-        except:
+            message = self.client.messages.create(
+                model=self._MODEL,
+                max_tokens=20,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = message.content[0].text.strip().strip("\"'").upper()
+            words = raw.split()
+            return " ".join(words[:5]) if words else "WATCH THIS"
+        except Exception as e:
+            print(f"[WARN] generate_hook failed: {e}")
+            return "WATCH THIS"
+
+    def analyze_transcription(
+        self,
+        transcription: str,
+        video_duration: float,
+        max_clips: int = 5,
+    ) -> List[Dict]:
+        """
+        Find viral moments in the transcript using Claude.
+
+        Always requests 8–15 clips (minimum 8 regardless of max_clips).
+        Returns up to max(max_clips, 8) results sorted by virality_score desc.
+        """
+        min_clips = 8
+        effective_max = max(min_clips, min(15, max_clips))
+
+        prompt = _build_analysis_prompt(
+            transcription, video_duration, min_clips, effective_max
+        )
+
+        print(
+            f"[DEBUG] ClaudeAnalyzer.analyze_transcription: "
+            f"requesting {min_clips}–{effective_max} clips, "
+            f"video={video_duration:.1f}s"
+        )
+
+        last_error: Exception = Exception("No attempts made")
+
+        for attempt in range(1, 4):
+            try:
+                print(f"[INFO] Claude API call (attempt {attempt}/3) …")
+                message = self.client.messages.create(
+                    model=self._MODEL,
+                    max_tokens=4096,
+                    system=_SYSTEM_PROMPT,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                raw_text = message.content[0].text
+                print(f"[OK] Claude responded ({len(raw_text)} chars)")
+
+                clips = self._parse_json_response(raw_text)
+                if clips:
+                    print(f"[OK] Parsed {len(clips)} clips from Claude")
+                    return self._validate_clips(clips, video_duration, effective_max)
+
+                print("[WARN] Claude returned an empty clips list — retrying …")
+                last_error = ValueError("Empty clips list in Claude response")
+
+            except anthropic.RateLimitError as exc:
+                wait = 2 ** attempt
+                print(f"[WARN] Rate-limited (attempt {attempt}/3): {exc}. Retry in {wait}s …")
+                last_error = exc
+                time.sleep(wait)
+
+            except anthropic.APIStatusError as exc:
+                wait = 2 ** (attempt - 1)
+                print(f"[WARN] API error {exc.status_code} (attempt {attempt}/3): {exc.message}. Retry in {wait}s …")
+                last_error = exc
+                time.sleep(wait)
+
+            except Exception as exc:
+                wait = 2 ** (attempt - 1)
+                print(f"[WARN] Unexpected error (attempt {attempt}/3): {exc}. Retry in {wait}s …")
+                last_error = exc
+                time.sleep(wait)
+
+        raise Exception(
+            f"Claude analysis failed after 3 attempts. Last error: {last_error}. "
+            "Check ANTHROPIC_API_KEY and network connectivity."
+        )
+
+    # ── JSON parsing with multiple fallback strategies ────────
+
+    def _parse_json_response(self, content: str) -> List[Dict]:
+        """Try to extract a clips list from Claude's raw text output."""
+
+        # Strategy 1: direct parse (Claude returns clean JSON most of the time)
+        try:
+            return self._extract_clips(json.loads(content.strip()))
+        except (json.JSONDecodeError, ValueError):
             pass
-        
+
+        # Strategy 2: ```json ... ``` fence
+        m = re.search(r"```json\s*([\s\S]*?)\s*```", content)
+        if m:
+            try:
+                return self._extract_clips(json.loads(m.group(1)))
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        # Strategy 3: plain ``` ... ``` fence
+        m = re.search(r"```\s*([\s\S]*?)\s*```", content)
+        if m:
+            try:
+                return self._extract_clips(json.loads(m.group(1)))
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        # Strategy 4: find the outermost { … } object in the text
+        m = re.search(r"\{[\s\S]*\}", content)
+        if m:
+            try:
+                return self._extract_clips(json.loads(m.group(0)))
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        print(
+            f"[WARN] All JSON parse strategies failed. "
+            f"Response preview: {content[:300]!r}"
+        )
         return []
-    
-    def _validate_clips(self, clips: List[Dict], video_duration: float, max_clips: int = 5) -> List[Dict]:
-        validated = []
-        
+
+    def _extract_clips(self, parsed) -> List[Dict]:
+        """Pull the clips list out of any parsed JSON shape."""
+        if isinstance(parsed, list):
+            return parsed
+        if isinstance(parsed, dict):
+            for key in ("clips", "viral_clips", "moments", "results", "data"):
+                if key in parsed and isinstance(parsed[key], list):
+                    return parsed[key]
+            # Single-clip object returned directly
+            if "start_time" in parsed and "end_time" in parsed:
+                return [parsed]
+        raise ValueError(f"Cannot extract clips list from {type(parsed)}")
+
+    # ── Validation & normalisation ────────────────────────────
+
+    def _validate_clips(
+        self,
+        clips: List[Dict],
+        video_duration: float,
+        max_clips: int = 15,
+    ) -> List[Dict]:
+        """
+        Validate timestamps, enforce 30-90s bounds, fill missing fields.
+        Output dict is a superset of the original format — all existing
+        pipeline keys are present so nothing in main.py breaks.
+        """
+        validated: List[Dict] = []
+
         for clip in clips:
             if not isinstance(clip, dict):
                 continue
-            
-            start = float(clip.get("start_time", 0))
-            end = float(clip.get("end_time", 30))
-            
-            # Validate bounds
-            if start < 0:
-                start = 0
-            if end > video_duration:
-                end = video_duration
-            
-            # Ensure minimum 15s, maximum 60s
+
+            try:
+                start = float(clip.get("start_time", 0))
+                end = float(clip.get("end_time", start + 45))
+            except (TypeError, ValueError):
+                continue
+
+            # Clamp to video bounds
+            start = max(0.0, min(start, video_duration - 30))
+            end = max(start + 30, min(end, video_duration))
+
+            # Enforce 30-90 second clip length
             duration = end - start
-            if duration < 15:
-                end = min(start + 15, video_duration)
-            if duration > 60:
-                end = start + 60
-            
-            # Ensure clip fits in video
+            if duration < 30:
+                end = min(start + 30, video_duration)
+            if duration > 90:
+                end = start + 90
             if end > video_duration:
                 end = video_duration
-                start = max(0, end - 30)  # Fallback to 30s if needed
-            
-            title = clip.get("title", "Viral Clip")
-            reason = clip.get("reason", "High engagement potential")
-            content_preview = clip.get("content_preview", "")
-            
-            # Use AI-generated hook if available, otherwise generate one
-            hook = clip.get("hook_text", "")
-            if not hook:
-                hook = self.generate_hook(title, reason, content_preview)
-            
-            # Get emojis from AI or default
+                start = max(0.0, end - 30)
+
+            # hook — 3-5 word ALL-CAPS overlay (required by subtitle_generator)
+            hook = str(clip.get("hook") or "").strip().upper()
+            # Discard hooks that look like full sentences (> 6 words)
+            if not hook or len(hook.split()) > 6:
+                title = str(clip.get("title", "Viral Clip"))
+                reason = str(clip.get("reason", ""))
+                hook = self.generate_hook(title, reason, "")
+
+            # emojis
             emojis = clip.get("emojis", ["🔥", "💯"])
             if not isinstance(emojis, list):
                 emojis = ["🔥", "💯"]
-            
+            emojis = [str(e) for e in emojis[:3]]
+
+            try:
+                score = min(10, max(1, int(float(clip.get("virality_score", 7)))))
+            except (TypeError, ValueError):
+                score = 7
+
             validated.append({
+                # ── Fields required by existing pipeline ──────────────
                 "start_time": round(start, 2),
                 "end_time": round(end, 2),
-                "title": title,
-                "reason": reason,
-                "virality_score": min(10, max(1, int(clip.get("virality_score", 7)))),
+                "title": str(clip.get("title", "Viral Clip")),
+                "reason": str(clip.get("reason", "High engagement potential")),
+                "virality_score": score,
                 "hook": hook,
-                "emojis": emojis[:3]  # Max 3 emojis
+                "emojis": emojis,
+                # ── New enrichment fields (additive — pipeline ignores unknowns) ──
+                "opening_line": str(clip.get("opening_line", "")),
+                "moment_type": str(clip.get("moment_type", "emotion")),
+                "emotion_trigger": str(clip.get("emotion_trigger", "")),
+                "structure_type": str(clip.get("structure_type", "")),
+                "hook_type": str(clip.get("hook_type", "")),
+                "best_platform": str(clip.get("best_platform", "TikTok")),
             })
-        
+
         validated.sort(key=lambda x: x["virality_score"], reverse=True)
         return validated[:max_clips]
 
 
-def create_analyzer(provider: str = "openai"):
+# Backward-compatible alias — existing code that imports ViralClipAnalyzer still works
+ViralClipAnalyzer = ClaudeAnalyzer
+
+
+def create_analyzer(provider: str = "openai") -> "ClaudeAnalyzer | MockAnalyzer":
+    """
+    Factory for clip analyzers.
+
+    - "mock"              → MockAnalyzer  (no API, for testing)
+    - "claude" / "openai" → ClaudeAnalyzer (OpenAI replaced by Claude)
+    """
     if provider.lower() == "mock":
         return MockAnalyzer()
-    return ViralClipAnalyzer(provider=provider)
+    return ClaudeAnalyzer(provider=provider)

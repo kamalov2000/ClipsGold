@@ -1,0 +1,33 @@
+venv/
+venv312/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+
+# Local dev data (mounted as volumes in production)
+uploads/
+outputs/
+clips/
+thumbnails/
+downloads/
+*.db
+*.sqlite
+
+# Secrets
+.env
+.env.*
+
+# Windows binaries
+ffmpeg.exe
+ffprobe.exe
+ffplay.exe
+
+# Logs
+*.log
+logs/

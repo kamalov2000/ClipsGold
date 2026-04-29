@@ -30,7 +30,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15")
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "30"))
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)  # TODO: Re-enable auth - set auto_error=True
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=True)
 
 
 # ── Pydantic schemas ──────────────────────────────────────────
@@ -106,38 +106,32 @@ def revoke_all_refresh_tokens(user_id: str, db: Session) -> None:
 # ── FastAPI dependencies ──────────────────────────────────────
 
 def get_current_user(
-    token: Optional[str] = None,  # TODO: Re-enable auth - was: Depends(oauth2_scheme)
+    token: Optional[str] = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
-) -> Optional[User]:  # TODO: Re-enable auth - changed to Optional for dev
+) -> User:
     """
-    Decode JWT, load User from DB.
+    Decode JWT access token, load User from DB.
     Raises 401 on any failure — uniform response prevents user enumeration.
-    
-    TODO: Re-enable auth - currently returns None to allow development without auth
     """
-    # DEVELOPMENT MODE: Skip auth validation
-    return None
-    
-    # # PRODUCTION MODE: Uncomment below to re-enable auth
-    # credentials_exc = HTTPException(
-    #     status_code=status.HTTP_401_UNAUTHORIZED,
-    #     detail="Could not validate credentials",
-    #     headers={"WWW-Authenticate": "Bearer"},
-    # )
-    # try:
-    #     payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-    #     if payload.get("type") != "access":
-    #         raise credentials_exc
-    #     user_id: str = payload.get("sub")
-    #     if not user_id:
-    #         raise credentials_exc
-    # except JWTError:
-    #     raise credentials_exc
+    credentials_exc = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("type") != "access":
+            raise credentials_exc
+        user_id: str = payload.get("sub")
+        if not user_id:
+            raise credentials_exc
+    except JWTError:
+        raise credentials_exc
 
-    # user = db.query(User).filter_by(id=user_id, is_active=True).first()
-    # if not user:
-    #     raise credentials_exc
-    # return user
+    user = db.query(User).filter_by(id=user_id, is_active=True).first()
+    if not user:
+        raise credentials_exc
+    return user
 
 
 def get_current_active_user(user: User = Depends(get_current_user)) -> User:

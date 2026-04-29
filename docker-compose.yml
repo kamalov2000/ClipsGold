@@ -1,10 +1,11 @@
 version: '3.9'
 
 x-backend-env: &backend-env
-  OPENAI_API_KEY: ${OPENAI_API_KEY}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
   DATABASE_URL: postgresql+psycopg2://clipsgold:${POSTGRES_PASSWORD:-clipsgold}@postgres:5432/clipsgold
   REDIS_URL: redis://redis:6379/0
-  JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change_me_in_production}
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY}
   ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
   REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-30}
   S3_BUCKET: ${S3_BUCKET:-}
@@ -17,7 +18,8 @@ x-backend-env: &backend-env
   ENVIRONMENT: ${ENVIRONMENT:-production}
   APP_VERSION: ${APP_VERSION:-1.0.0}
   SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
-  YOUTUBE_COOKIES_FILE: ${YOUTUBE_COOKIES_FILE:-}
+  CORS_ORIGINS: ${CORS_ORIGINS:-https://clipsgold.ru,https://www.clipsgold.ru}
+  TRUST_PROXY: "1"
 
 x-backend-volumes: &backend-volumes
   - ./backend/uploads:/app/uploads
@@ -38,8 +40,6 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-clipsgold}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U clipsgold"]
       interval: 10s
@@ -53,8 +53,6 @@ services:
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -68,8 +66,6 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: clipsgold_backend
-    ports:
-      - "8000:8000"
     environment:
       <<: *backend-env
     volumes: *backend-volumes
@@ -132,7 +128,12 @@ services:
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
       PROXIES: ${PROXIES:-}
     volumes:
-      - *backend-volumes
+      - ./backend/uploads:/app/uploads
+      - ./backend/outputs:/app/outputs
+      - ./backend/clips:/app/clips
+      - ./backend/thumbnails:/app/thumbnails
+      - ./backend/assets:/app/assets
+      - ./backend/models:/app/models
       - ./backend/downloads:/app/downloads
     depends_on:
       postgres:
@@ -147,13 +148,37 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: https://api.clipsgold.ru
+        NEXT_PUBLIC_WS_URL: wss://api.clipsgold.ru
     container_name: clipsgold_frontend
-    ports:
-      - "3000:3000"
-    environment:
-      NEXT_PUBLIC_API_URL: http://backend:8000
     depends_on:
       - backend
+    restart: unless-stopped
+
+  # ── Reverse proxy + SSL ───────────────────────────────────────
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: clipsgold_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./certbot/www:/var/www/certbot:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+    depends_on:
+      - backend
+      - frontend
+    restart: unless-stopped
+
+  certbot:
+    image: certbot/certbot
+    container_name: clipsgold_certbot
+    volumes:
+      - ./certbot/www:/var/www/certbot
+      - ./certbot/conf:/etc/letsencrypt
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
     restart: unless-stopped
 
 volumes:

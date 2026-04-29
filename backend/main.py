@@ -919,14 +919,9 @@ async def simple_login(body: _SimpleLoginRequest):
 
 
 @app.get("/auth/me")
-async def simple_me(request: Request):
-    """Verify Bearer token and return email. Used by frontend on page load."""
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing token.")
-    token = auth_header[7:]
-    email = _verify_simple_token(token)
-    return {"email": email}
+async def simple_me(current_user: User = Depends(get_current_user)):
+    """Verify Bearer token and return user info. Used by frontend on page load."""
+    return {"email": current_user.email, "plan": current_user.plan}
 
 
 @app.post("/auth/json-login", response_model=_SimpleTokenResponse)
@@ -934,22 +929,32 @@ async def json_login(body: _SimpleLoginRequest, db=Depends(get_db)):
     """
     JSON-based login: accepts {email, password}.
     Checks admin credentials first, then falls back to DB users (registered via /auth/register).
+    Issues a standard 'access' JWT compatible with get_current_user.
     """
-    from services.auth import verify_password
-    # 1. Try hardcoded admin account
+    from services.auth import verify_password, create_access_token, hash_password
+    # 1. Try hardcoded admin account — auto-create DB record on first login
     if _hmac.compare_digest(body.email.lower().strip(), _ADMIN_EMAIL.lower()) and \
        _hmac.compare_digest(body.password, _ADMIN_PASSWORD):
-        token = _make_simple_token(_ADMIN_EMAIL)
-        log.info("json_login_admin", email=_ADMIN_EMAIL)
+        admin_user = db.query(User).filter_by(email=_ADMIN_EMAIL.lower()).first()
+        if not admin_user:
+            admin_user = User(
+                email=_ADMIN_EMAIL.lower(),
+                hashed_password=hash_password(_ADMIN_PASSWORD),
+                is_active=True,
+            )
+            db.add(admin_user)
+            db.commit()
+            db.refresh(admin_user)
+        token = create_access_token(str(admin_user.id))
+        log.info("json_login_admin", email=_ADMIN_EMAIL, user_id=str(admin_user.id))
         return _SimpleTokenResponse(access_token=token)
     # 2. Try DB user
-    from db.models import User
     user = db.query(User).filter_by(email=body.email.lower().strip(), is_active=True).first()
     _dummy = "$2b$12$KIXbKkDqzFbMnJqX5QvXeOmNKLhVqFwMPqRsT7uVwXyZaAbBcCdDe"
     candidate_hash = user.hashed_password if user else _dummy
     if not verify_password(body.password, candidate_hash) or not user:
         raise HTTPException(status_code=401, detail="Invalid email or password.")
-    token = _make_simple_token(user.email)
+    token = create_access_token(str(user.id))
     log.info("json_login_user", user_id=str(user.id))
     return _SimpleTokenResponse(access_token=token)
 
@@ -996,7 +1001,7 @@ async def test_no_auth():
 @app.post("/upload")
 async def upload_video(
     file: UploadFile = File(...),
-    # current_user: User = Depends(get_current_user),  # TODO: Re-enable auth
+    current_user: User = Depends(get_current_user),
 ):
     if not file.filename.endswith('.mp4'):
         raise HTTPException(status_code=400, detail="Only MP4 files are allowed")
@@ -1110,7 +1115,7 @@ def _strip_ansi(text: str) -> str:
 async def download_youtube(
     request: Request,
     body: YouTubeDownloadRequest,
-    # current_user: User = Depends(get_current_user),  # TODO: Re-enable auth
+    current_user: User = Depends(get_current_user),
 ):
     # SSRF guard: validate + canonicalize URL before any server-side fetch.
     # canonical_url is always https://www.youtube.com/watch?v={id}
@@ -1192,7 +1197,7 @@ async def download_youtube(
 async def process_video(
     file_id: str,
     operation: str = "info",
-    # current_user: User = Depends(get_current_user),  # TODO: Re-enable auth
+    current_user: User = Depends(get_current_user),
 ):
     input_file = UPLOAD_DIR / f"{file_id}.mp4"
     
@@ -1271,7 +1276,7 @@ async def process_video(
 async def download_file(
     file_id: str,
     file_type: str = "compressed",
-    # current_user: User = Depends(get_current_user),  # TODO: Re-enable auth
+    current_user: User = Depends(get_current_user),
 ):
     if file_type == "thumbnail":
         file_path = OUTPUT_DIR / f"{file_id}_thumb.jpg"
@@ -1321,7 +1326,7 @@ async def get_thumbnail(filename: str):
 @app.post("/transcribe/{file_id}")
 async def transcribe_video(
     file_id: str,
-    # current_user: User = Depends(get_current_user),  # TODO: Re-enable auth
+    current_user: User = Depends(get_current_user),
 ):
     input_file = UPLOAD_DIR / f"{file_id}.mp4"
     
@@ -1388,7 +1393,7 @@ async def transcribe_video(
 @app.get("/transcription/{file_id}")
 def get_transcription(
     file_id: str,
-    # current_user: User = Depends(get_current_user),  # TODO: Re-enable auth
+    current_user: User = Depends(get_current_user),
 ):
     """Return full transcription and segments for editing."""
     data = transcription_store.get(file_id)
@@ -1417,7 +1422,7 @@ class TranscriptionEditRequest(BaseModel):
 def patch_transcription(
     file_id: str,
     request: TranscriptionEditRequest,
-    # current_user: User = Depends(get_current_user),  # TODO: Re-enable auth
+    current_user: User = Depends(get_current_user),
 ):
     """Update segment texts (and words) from user edits. Persists to file and store."""
     data = transcription_store.get(file_id)
@@ -1449,7 +1454,7 @@ async def analyze_video(
     file_id: str,
     provider: str = "openai",
     max_clips: int = 5,
-    # current_user: User = Depends(get_current_user),  # TODO: Re-enable auth
+    current_user: User = Depends(get_current_user),
 ):
     """HUMAN-IN-THE-LOOP: Analyze video and store candidates (no rendering yet)"""
     print(f"[DEBUG] /analyze/{file_id} called: provider={provider}, max_clips={max_clips}")
@@ -1510,7 +1515,7 @@ async def analyze_video(
 @app.post("/analyze-video")
 async def analyze_video_autonomous(
     file_id: str,
-    # current_user: User = Depends(get_current_user),  # TODO: Re-enable auth
+    current_user: User = Depends(get_current_user),
 ):
     """
     AUTONOMOUS AI FACTORY: Discover viral moments using GPT-4o.
@@ -1595,7 +1600,7 @@ async def analyze_video_autonomous(
 @app.get("/clips/{file_id}/candidates")
 async def get_clip_candidates(
     file_id: str,
-    # current_user: User = Depends(get_current_user),  # TODO: Re-enable auth
+    current_user: User = Depends(get_current_user),
 ):
     """HUMAN-IN-THE-LOOP: Get clip candidates for review (no rendering)"""
     # Try in-memory store first
@@ -1666,7 +1671,7 @@ class RenderClipRequest(BaseModel):
 async def extract_viral_clips(
     file_id: str,
     request: Optional[ExtractClipsRequest] = None,
-    # current_user: User = Depends(get_current_user),  # TODO: Re-enable auth
+    current_user: User = Depends(get_current_user),
 ):
     """HUMAN-IN-THE-LOOP: Render specific clips selected by user"""
     # Default request if not provided (backward compatibility)
@@ -1870,7 +1875,7 @@ async def extract_viral_clips(
 async def download_clip(
     file_id: str,
     clip_id: int,
-    # current_user: User = Depends(get_current_user),  # TODO: Re-enable auth
+    current_user: User = Depends(get_current_user),
 ):
     # Try to find clip with any pattern (legacy, suffixed, or hashed)
     # First try exact match (legacy)
@@ -1912,7 +1917,7 @@ async def download_clip(
 async def get_clip_meta(
     file_id: str,
     clip_id: int,
-    # current_user: User = Depends(get_current_user),  # TODO: Re-enable auth
+    current_user: User = Depends(get_current_user),
 ):
     """Return social metadata JSON generated after render."""
     meta_path = OUTPUT_DIR / f"{file_id}_clip_{clip_id}_meta.json"
@@ -1926,7 +1931,7 @@ async def get_clip_meta(
 async def render_clip_with_progress(
     request: RenderClipRequest,
     background_tasks: BackgroundTasks,
-    # current_user: User = Depends(get_current_user),  # TODO: Re-enable auth
+    current_user: User = Depends(get_current_user),
 ):
     """
     Render a single clip with WebSocket progress tracking.
@@ -1975,7 +1980,7 @@ async def render_clip_with_progress(
 @app.delete("/cleanup/{file_id}")
 async def cleanup_files(
     file_id: str,
-    # current_user: User = Depends(get_current_user),  # TODO: Re-enable auth
+    current_user: User = Depends(get_current_user),
 ):
     files_deleted = []
     

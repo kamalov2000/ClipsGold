@@ -1,240 +1,179 @@
 #!/bin/bash
 # ============================================================
-#  ClipsGold — Full Server Deploy Script
-#  Server: 216.57.106.48 | User: root
-#  DB: SQLite | Queue: FastAPI only (no Celery)
+#  ClipsGold — Docker Deploy Script (run from LOCAL machine)
+#  Server:  72.56.112.247
+#  Domain:  clipsgold.ru  |  api.clipsgold.ru
+#  Repo:    github.com/kamalov2000/ClipsGold
 # ============================================================
-set -e
+set -euo pipefail
 
-SERVER_IP="216.57.106.48"
+SERVER_IP="72.56.112.247"
+SERVER_USER="root"
+SERVER="${SERVER_USER}@${SERVER_IP}"
 APP_DIR="/opt/ClipsGold"
 REPO_URL="https://github.com/kamalov2000/ClipsGold"
-BACKEND_PORT="8000"
-FRONTEND_PORT="3000"
+DOMAIN="clipsgold.ru"
+API_DOMAIN="api.clipsgold.ru"
+EMAIL="akamalov781@gmail.com"
+ENV_FILE="./backend/.env"
 
-log() { echo -e "\n\033[1;34m==> $1\033[0m"; }
-ok()  { echo -e "\033[1;32m    [OK] $1\033[0m"; }
-warn(){ echo -e "\033[1;33m    [!!] $1\033[0m"; }
+log()  { echo -e "\n\033[1;34m==> $1\033[0m"; }
+ok()   { echo -e "\033[1;32m    [OK] $1\033[0m"; }
+warn() { echo -e "\033[1;33m    [!!] $1\033[0m"; }
+die()  { echo -e "\033[1;31m    [ERROR] $1\033[0m"; exit 1; }
 
-# ── 1. Swap 2 GB ─────────────────────────────────────────────
-log "Step 1/10: Adding 2 GB swap"
-if [ -f /swapfile ]; then
-    warn "Swap already exists, skipping"
+# ── Preflight ─────────────────────────────────────────────────
+log "Preflight checks"
+[ -f "$ENV_FILE" ] || die ".env not found at $ENV_FILE — copy .env.example and fill it in"
+command -v ssh  >/dev/null || die "ssh not found"
+command -v scp  >/dev/null || die "scp not found"
+ok "Preflight passed"
+
+# ── 1. Upload .env ────────────────────────────────────────────
+log "Step 1/7: Uploading .env to server"
+scp "$ENV_FILE" "${SERVER}:/tmp/clipsgold.env"
+ok ".env uploaded"
+
+# ── 2. Install Docker ─────────────────────────────────────────
+log "Step 2/7: Installing Docker on server"
+ssh "$SERVER" 'bash -s' << 'ENDDOCKER'
+set -e
+if docker --version &>/dev/null; then
+    echo "Docker already installed: $(docker --version)"
 else
-    fallocate -l 2G /swapfile
-    chmod 600 /swapfile
-    mkswap /swapfile
-    swapon /swapfile
-    echo '/swapfile none swap sw 0 0' >> /etc/fstab
-    sysctl vm.swappiness=10
-    echo 'vm.swappiness=10' >> /etc/sysctl.conf
-    ok "Swap 2 GB created and mounted"
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq
+    apt-get install -y -q ca-certificates curl gnupg lsb-release
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+        | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    chmod a+r /etc/apt/keyrings/docker.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+        https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
+        > /etc/apt/sources.list.d/docker.list
+    apt-get update -qq
+    apt-get install -y -q docker-ce docker-ce-cli containerd.io docker-compose-plugin
+    systemctl enable docker && systemctl start docker
+    echo "Docker installed: $(docker --version)"
 fi
-free -h
+docker compose version || apt-get install -y -q docker-compose-plugin
+ENDDOCKER
+ok "Docker ready"
 
-# ── 2. System update & base packages ────────────────────────
-log "Step 2/10: Updating system & installing base packages"
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -y -q
-apt-get install -y -q \
-    git curl wget build-essential software-properties-common \
-    libssl-dev libffi-dev libbz2-dev libreadline-dev libsqlite3-dev \
-    zlib1g-dev libncurses5-dev libgdbm-dev libnss3-dev \
-    ca-certificates gnupg lsb-release
-ok "Base packages installed"
-
-# ── 3. Python 3.12 ──────────────────────────────────────────
-log "Step 3/10: Installing Python 3.12"
-if python3.12 --version &>/dev/null; then
-    warn "Python 3.12 already installed: $(python3.12 --version)"
+# ── 3. Clone / update repository ─────────────────────────────
+log "Step 3/7: Cloning repository"
+ssh "$SERVER" "
+APP_DIR='$APP_DIR'
+REPO_URL='$REPO_URL'
+set -e
+if [ -d \"\$APP_DIR/.git\" ]; then
+    echo 'Repo exists — pulling latest...'
+    git -C \"\$APP_DIR\" fetch origin
+    git -C \"\$APP_DIR\" reset --hard origin/main
 else
-    add-apt-repository ppa:deadsnakes/ppa -y
-    apt-get update -y -q
-    apt-get install -y -q python3.12 python3.12-venv python3.12-dev python3-pip
-    ok "Python 3.12 installed"
+    git clone \"\$REPO_URL\" \"\$APP_DIR\"
+    echo 'Repo cloned'
 fi
-python3.12 --version
+"
+ok "Repository ready at $APP_DIR"
 
-# ── 4. Node.js 20 ───────────────────────────────────────────
-log "Step 4/10: Installing Node.js 20"
-if node --version 2>/dev/null | grep -q "v20"; then
-    warn "Node.js 20 already installed: $(node --version)"
-else
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-    apt-get install -y -q nodejs
-    ok "Node.js installed: $(node --version)"
-fi
-node --version && npm --version
+# ── 4. Place .env and configure for production ───────────────
+log "Step 4/7: Configuring .env on server"
+ssh "$SERVER" "
+APP_DIR='$APP_DIR'
+DOMAIN='$DOMAIN'
+set -e
+mkdir -p \"\$APP_DIR/backend\"
+cp /tmp/clipsgold.env \"\$APP_DIR/backend/.env\"
+rm /tmp/clipsgold.env
 
-# ── 5. FFmpeg ────────────────────────────────────────────────
-log "Step 5/10: Installing FFmpeg"
-if ffmpeg -version &>/dev/null; then
-    warn "FFmpeg already installed"
-else
-    apt-get install -y -q ffmpeg
-    ok "FFmpeg installed"
-fi
-ffmpeg -version | head -1
+# Switch to PostgreSQL (Docker container)
+sed -i 's|^DATABASE_URL=sqlite.*|DATABASE_URL=postgresql+psycopg2://clipsgold:clipsgold@postgres:5432/clipsgold|' \"\$APP_DIR/backend/.env\" || true
+# Ensure we're not accidentally using a remote Postgres
+sed -i 's|^DATABASE_URL=postgresql.*@localhost.*|DATABASE_URL=postgresql+psycopg2://clipsgold:clipsgold@postgres:5432/clipsgold|' \"\$APP_DIR/backend/.env\" || true
 
-# ── 6. Clone / update repository ────────────────────────────
-log "Step 6/10: Cloning repository to $APP_DIR"
-if [ -d "$APP_DIR/.git" ]; then
-    warn "Repo already exists — pulling latest"
-    git -C "$APP_DIR" pull origin main || git -C "$APP_DIR" pull origin master
-else
-    git clone "$REPO_URL" "$APP_DIR"
-    ok "Repository cloned"
-fi
+sed -i 's|^ENVIRONMENT=.*|ENVIRONMENT=production|' \"\$APP_DIR/backend/.env\"
+sed -i 's|^CORS_ORIGINS=.*|CORS_ORIGINS=https://\${DOMAIN},https://www.\${DOMAIN}|' \"\$APP_DIR/backend/.env\" || true
 
-# ── 7. Backend: venv + dependencies ─────────────────────────
-log "Step 7/10: Setting up Python backend"
-cd "$APP_DIR/backend"
+echo '.env configured'
+"
+ok ".env placed"
 
-# Remove Windows FFmpeg binaries (not needed on Linux)
-rm -f ffmpeg.exe ffprobe.exe ffplay.exe
-ok "Removed Windows FFmpeg binaries"
+# ── 5. Build and start core services ─────────────────────────
+log "Step 5/7: Building and starting Docker services"
+ssh "$SERVER" "
+APP_DIR='$APP_DIR'
+set -e
+cd \"\$APP_DIR\"
+mkdir -p certbot/conf certbot/www
 
-# Create venv
-python3.12 -m venv venv
-source venv/bin/activate
+# Read POSTGRES_PASSWORD from .env (default: clipsgold)
+export POSTGRES_PASSWORD=\$(grep '^POSTGRES_PASSWORD=' backend/.env | cut -d= -f2 || echo 'clipsgold')
 
-pip install --upgrade pip wheel setuptools -q
-ok "pip upgraded"
+# Pull public images, build app images
+docker compose pull postgres redis 2>/dev/null || true
+docker compose build backend frontend
 
-# Install requirements (heavy packages: torch, whisper — expect ~5-10 min)
-warn "Installing Python dependencies (torch + whisper may take 5-10 min)..."
-pip install -r requirements.txt
-ok "Python dependencies installed"
+# Start everything except nginx (needs certs first)
+docker compose up -d postgres redis
+echo 'Waiting for database...'
+sleep 5
+docker compose up -d backend celery_worker factory_worker frontend
 
-deactivate
-
-# ── 8. .env file validation ──────────────────────────────────
-log "Step 8/10: Configuring backend .env"
-if [ ! -f "$APP_DIR/backend/.env" ]; then
-    echo "ERROR: .env file not found at $APP_DIR/backend/.env"
-    echo "       Run the SCP command first (see README)."
-    exit 1
-fi
-
-# Ensure SQLite is used (update DATABASE_URL if it's PostgreSQL)
-if grep -q "^DATABASE_URL=postgresql" "$APP_DIR/backend/.env"; then
-    warn "Switching DATABASE_URL from PostgreSQL to SQLite"
-    sed -i 's|^DATABASE_URL=postgresql.*|DATABASE_URL=sqlite:///./clipsgold.db|' "$APP_DIR/backend/.env"
-fi
-
-# Ensure CORS allows frontend
-if ! grep -q "$SERVER_IP:$FRONTEND_PORT" "$APP_DIR/backend/.env"; then
-    warn "Adding server IP to CORS_ORIGINS"
-    if grep -q "^CORS_ORIGINS=" "$APP_DIR/backend/.env"; then
-        sed -i "s|^CORS_ORIGINS=.*|CORS_ORIGINS=http://${SERVER_IP}:${FRONTEND_PORT},http://localhost:${FRONTEND_PORT}|" "$APP_DIR/backend/.env"
-    else
-        echo "CORS_ORIGINS=http://${SERVER_IP}:${FRONTEND_PORT},http://localhost:${FRONTEND_PORT}" >> "$APP_DIR/backend/.env"
+echo ''
+echo 'Waiting for backend to become healthy (max 60s)...'
+for i in \$(seq 1 20); do
+    if docker compose exec -T backend curl -sf http://localhost:8000/health &>/dev/null 2>&1; then
+        echo 'Backend is healthy'
+        break
     fi
-fi
+    printf '  attempt %d/20...\n' \"\$i\"
+    sleep 3
+done
+"
+ok "Core services running"
 
-# Ensure ENVIRONMENT=production
-sed -i 's|^ENVIRONMENT=.*|ENVIRONMENT=production|' "$APP_DIR/backend/.env"
-ok ".env configured"
+# ── 6. SSL certificates + nginx ──────────────────────────────
+log "Step 6/7: Setting up SSL and nginx (Let's Encrypt)"
+ssh "$SERVER" "
+APP_DIR='$APP_DIR'
+DOMAIN='$DOMAIN'
+API_DOMAIN='$API_DOMAIN'
+EMAIL='$EMAIL'
+set -e
+cd \"\$APP_DIR\"
+chmod +x init-letsencrypt.sh
+./init-letsencrypt.sh \"\$DOMAIN\" \"\$API_DOMAIN\" \"\$EMAIL\"
+"
+ok "SSL and nginx ready"
 
-# ── 9. Frontend: env + build ─────────────────────────────────
-log "Step 9/10: Building Next.js frontend"
-cd "$APP_DIR/frontend"
+# ── 7. Verify ─────────────────────────────────────────────────
+log "Step 7/7: Verifying deployment"
+ssh "$SERVER" "
+APP_DIR='$APP_DIR'
+set -e
+cd \"\$APP_DIR\"
+echo ''
+docker compose ps
+echo ''
+echo 'HTTP checks:'
+curl -sI https://clipsgold.ru       | head -1 || echo 'clipsgold.ru: no response yet'
+curl -sI https://api.clipsgold.ru/health | head -1 || echo 'api.clipsgold.ru: no response yet'
+"
 
-# Create .env.local with correct server URLs (baked into Next.js build)
-cat > .env.local << EOF
-NEXT_PUBLIC_API_URL=http://${SERVER_IP}:${BACKEND_PORT}
-NEXT_PUBLIC_WS_URL=ws://${SERVER_IP}:${BACKEND_PORT}
-EOF
-ok "frontend/.env.local created"
-
-npm install --legacy-peer-deps
-ok "npm install done"
-
-npm run build
-ok "Next.js build complete"
-
-# ── 10. systemd services ─────────────────────────────────────
-log "Step 10/10: Creating systemd services"
-
-# Backend service
-cat > /etc/systemd/system/clipsgold-backend.service << EOF
-[Unit]
-Description=ClipsGold Backend (FastAPI + Uvicorn)
-After=network.target
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=$APP_DIR/backend
-ExecStart=$APP_DIR/backend/venv/bin/uvicorn main:app --host 0.0.0.0 --port $BACKEND_PORT --workers 1
-Restart=always
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-Environment=PYTHONUNBUFFERED=1
-
-[Install]
-WantedBy=multi-user.target
-EOF
-ok "clipsgold-backend.service created"
-
-# Frontend service
-cat > /etc/systemd/system/clipsgold-frontend.service << EOF
-[Unit]
-Description=ClipsGold Frontend (Next.js)
-After=network.target clipsgold-backend.service
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=$APP_DIR/frontend
-ExecStart=/usr/bin/node node_modules/.bin/next start -p $FRONTEND_PORT
-Restart=always
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-Environment=NODE_ENV=production
-
-[Install]
-WantedBy=multi-user.target
-EOF
-ok "clipsgold-frontend.service created"
-
-# Enable & start
-systemctl daemon-reload
-systemctl enable clipsgold-backend clipsgold-frontend
-systemctl restart clipsgold-backend clipsgold-frontend
-ok "Services enabled and started"
-
-# ── Wait and verify ──────────────────────────────────────────
+# ── Summary ───────────────────────────────────────────────────
 echo ""
-log "Waiting 8s for services to start..."
-sleep 8
-
+echo "════════════════════════════════════════════════════"
+echo "  DEPLOY COMPLETE"
 echo ""
-echo "═══════════════════════════════════════════"
-echo "  SERVICE STATUS"
-echo "═══════════════════════════════════════════"
-systemctl is-active clipsgold-backend  && echo "  Backend:  RUNNING ✓" || echo "  Backend:  FAILED ✗"
-systemctl is-active clipsgold-frontend && echo "  Frontend: RUNNING ✓" || echo "  Frontend: FAILED ✗"
-
+echo "  Frontend:  https://${DOMAIN}"
+echo "  API:       https://${API_DOMAIN}"
+echo "  API docs:  https://${API_DOMAIN}/docs"
+echo "  Flower:    http://${SERVER_IP}:5555"
 echo ""
-echo "  Checking HTTP endpoints..."
-sleep 2
-curl -s -o /dev/null -w "  Backend  http://${SERVER_IP}:${BACKEND_PORT}  → HTTP %{http_code}\n" \
-    "http://localhost:${BACKEND_PORT}/" || echo "  Backend: no response yet"
-curl -s -o /dev/null -w "  Frontend http://${SERVER_IP}:${FRONTEND_PORT} → HTTP %{http_code}\n" \
-    "http://localhost:${FRONTEND_PORT}/" || echo "  Frontend: no response yet"
-
-echo ""
-echo "═══════════════════════════════════════════"
-echo "  DEPLOY COMPLETE!"
-echo ""
-echo "  Frontend:  http://${SERVER_IP}:${FRONTEND_PORT}"
-echo "  Backend:   http://${SERVER_IP}:${BACKEND_PORT}"
-echo "  API docs:  http://${SERVER_IP}:${BACKEND_PORT}/docs"
-echo ""
-echo "  Logs:"
-echo "    journalctl -u clipsgold-backend -f"
-echo "    journalctl -u clipsgold-frontend -f"
-echo "═══════════════════════════════════════════"
+echo "  Useful commands:"
+echo "    ssh ${SERVER} 'cd ${APP_DIR} && docker compose ps'"
+echo "    ssh ${SERVER} 'cd ${APP_DIR} && docker compose logs -f backend'"
+echo "    ssh ${SERVER} 'cd ${APP_DIR} && docker compose logs -f nginx'"
+echo "    ssh ${SERVER} 'cd ${APP_DIR} && docker compose restart backend'"
+echo "════════════════════════════════════════════════════"
