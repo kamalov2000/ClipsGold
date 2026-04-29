@@ -60,22 +60,11 @@ docker compose version || apt-get install -y -q docker-compose-plugin
 ENDDOCKER
 ok "Docker ready"
 
-# ── 3. Clone / update repository ─────────────────────────────
-log "Step 3/7: Cloning repository"
-ssh "$SERVER" "
-APP_DIR='$APP_DIR'
-REPO_URL='$REPO_URL'
-set -e
-if [ -d \"\$APP_DIR/.git\" ]; then
-    echo 'Repo exists — pulling latest...'
-    git -C \"\$APP_DIR\" fetch origin
-    git -C \"\$APP_DIR\" reset --hard origin/main
-else
-    git clone \"\$REPO_URL\" \"\$APP_DIR\"
-    echo 'Repo cloned'
-fi
-"
-ok "Repository ready at $APP_DIR"
+# ── 3. Upload code via git archive (no GitHub credentials needed) ──
+log "Step 3/7: Uploading application code"
+ssh "$SERVER" "mkdir -p '$APP_DIR'"
+git archive HEAD | ssh "$SERVER" "tar -x -C '$APP_DIR'"
+ok "Code uploaded to $APP_DIR"
 
 # ── 4. Place .env and configure for production ───────────────
 log "Step 4/7: Configuring .env on server"
