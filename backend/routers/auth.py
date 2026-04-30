@@ -81,6 +81,30 @@ async def register(body: RegisterRequest, db: Session = Depends(get_db)):
     return {"message": "If this email is new, your account has been created."}
 
 
+class JsonLoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+@router.post("/json-login", response_model=TokenResponse)
+async def json_login(body: JsonLoginRequest, db: Session = Depends(get_db)):
+    """JSON-body login used by the frontend SPA (mirrors /login but accepts application/json)."""
+    user = db.query(User).filter_by(email=body.email.lower(), is_active=True).first()
+    _dummy_hash = "$2b$12$KIXbKkDqzFbMnJqX5QvXeOmNKLhVqFwMPqRsT7uVwXyZaAbBcCdDe"
+    candidate_hash = user.hashed_password if user else _dummy_hash
+    password_ok = verify_password(body.password, candidate_hash)
+    if not user or not password_ok:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token = create_access_token(str(user.id))
+    refresh_token = create_refresh_token(str(user.id), db)
+    log.info("user_login", user_id=str(user.id))
+    return TokenResponse(access_token=access_token, refresh_token=refresh_token)
+
+
 @router.post("/login", response_model=TokenResponse)
 async def login(
     form: OAuth2PasswordRequestForm = Depends(),

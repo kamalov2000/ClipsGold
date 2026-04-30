@@ -168,20 +168,6 @@ async def _render_worker():
 # Load environment variables from .env file
 load_dotenv()
 
-# CRITICAL FIX 3: Environment check for venv312
-print("\n" + "="*60)
-print("PYTHON ENVIRONMENT CHECK")
-print("="*60)
-print(f"Python Version: {sys.version}")
-print(f"Python Executable: {sys.executable}")
-print(f"\nSys.path (first 3 entries):")
-for i, path in enumerate(sys.path[:3]):
-    print(f"  [{i}] {path}")
-if "venv312" in sys.executable:
-    print("\n[OK] Running in venv312 environment")
-else:
-    print("\n[WARN] Not running in venv312! Check your activation.")
-print("="*60 + "\n")
 
 app = FastAPI(title="ClipsGold API", version="1.0.0")
 
@@ -221,6 +207,26 @@ async def _auto_cleanup_worker():
             print(f"🧹 Auto-cleanup: deleted {cleaned} file(s) older than 24h")
 
 
+def _restore_transcription_store() -> None:
+    """Re-populate in-memory transcription cache from disk after a container restart.
+
+    Transcription JSONs are persisted to outputs/{file_id}_transcription.json which
+    lives on the mounted Docker volume — they survive restarts.  Without this, every
+    restart forces the user to re-transcribe an already-processed video.
+    """
+    count = 0
+    for f in OUTPUT_DIR.glob("*_transcription.json"):
+        file_id = f.name[: -len("_transcription.json")]
+        try:
+            with f.open("r", encoding="utf-8") as fp:
+                transcription_store[file_id] = json.load(fp)
+            count += 1
+        except Exception as exc:
+            log.warning("transcription_restore_failed", file_id=file_id, error=str(exc))
+    if count:
+        log.info("transcriptions_restored_from_disk", count=count)
+
+
 @app.on_event("startup")
 async def start_background_workers():
     """Initialise DB tables, start render queue worker and auto-cleanup service."""
@@ -229,24 +235,21 @@ async def start_background_workers():
         log.info("db_tables_created")
     except Exception as e:
         log.error("db_init_failed", error=str(e))
+
     asyncio.create_task(_render_worker())
     log.info("render_worker_started")
     asyncio.create_task(_auto_cleanup_worker())
     log.info("cleanup_worker_started")
-    
-    # Check if autonomous mode is enabled
+
+    # Restore transcriptions from disk (survives container restart)
+    _restore_transcription_store()
+
+    # One-time background-video check at startup (not on every request)
+    check_background_videos()
+
     autonomous_mode = os.getenv("AUTONOMOUS_MODE", "False").lower() == "true"
     if autonomous_mode:
-        log.info("AUTONOMOUS_MODE enabled - starting AI Factory scheduler...")
-        print("\n" + "="*60)
-        print("AUTONOMOUS AI FACTORY - HEADLESS MODE")
-        print("="*60)
-        print("Scheduler will run automatically:")
-        print("  - 6:00 AM: Trend Scout (discover videos)")
-        print("  - 9:00 AM, 3:00 PM, 9:00 PM: Factory Cycle (process queue)")
-        print("  - 11:00 PM: Daily Report")
-        print("\nManual API endpoints are still available for testing.")
-        print("="*60 + "\n")
+        log.info("autonomous_mode_enabled")
 
 
 app.add_middleware(
@@ -980,11 +983,9 @@ async def websocket_render_progress(websocket: WebSocket, task_id: str):
 
 @app.get("/")
 async def root():
-    ffmpeg_available = check_ffmpeg()
-    check_background_videos()  # Startup check for satisfying split-screen
     return {
         "message": "Video Processing API",
-        "ffmpeg_available": ffmpeg_available
+        "ffmpeg_available": check_ffmpeg(),
     }
 
 
