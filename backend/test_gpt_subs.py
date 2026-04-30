@@ -1,5 +1,5 @@
 """
-Test subtitles WITH GPT-4o semantic chunking (key is now set)
+Test subtitles WITH Claude semantic chunking (ANTHROPIC_API_KEY)
 """
 
 import sys
@@ -20,7 +20,7 @@ for i, seg in enumerate(segments, 1):
     words = seg.get('words', [])
     print(f"   Seg {i}: {seg['start']:.1f}-{seg['end']:.1f}s | {len(words)} words | {seg['text'][:60].strip()}")
 
-print("\n2. Generating subtitles WITH GPT-4o semantic chunking...")
+print("\n2. Generating subtitles WITH Claude semantic chunking...")
 
 subtitle_gen = SubtitleGeneratorV2(use_semantic_chunking=True)
 output_path = Path("outputs/gpt_subs.ass")

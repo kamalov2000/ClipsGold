@@ -20,7 +20,7 @@ print("\n=== BEFORE CORRECTION ===")
 for i, seg in enumerate(segments, 1):
     print(f"\nSeg {i}: {seg['text'].strip()}")
 
-print("\n\nRunning GPT-4o correction...")
+print("\n\nRunning legacy correction hook (no-op in production)...")
 asyncio.run(fix_segments_with_openai(segments))
 
 print("\n=== AFTER CORRECTION ===")

@@ -6,7 +6,7 @@ Pipeline:
 1. Search for trending videos (yt-dlp)
 2. Download video
 3. Transcribe (Whisper)
-4. Analyze for viral moments (GPT-4o/Gemini)
+4. Analyze for viral moments (Claude)
 5. Filter clips (viral_score >= 8)
 6. Render clips (FFmpeg)
 7. Send to Telegram
@@ -124,7 +124,7 @@ print("STEP 3: VIRAL MOMENT ANALYSIS")
 print("="*60)
 
 # For now, create mock clips
-# In production, this would call GPT-4o/Gemini
+# In production, analysis uses Claude
 print("Analyzing transcript for viral moments...")
 
 mock_clips = [

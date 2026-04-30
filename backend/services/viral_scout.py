@@ -1,5 +1,5 @@
 """
-Viral Scout: AI-powered viral moment detection using GPT-4o.
+Viral Scout: AI-powered viral moment detection using Claude (Anthropic).
 Analyzes full transcripts to identify high-impact segments with emotional hooks.
 """
 
@@ -7,8 +7,10 @@ import json
 import os
 import re
 import asyncio
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from dotenv import load_dotenv
+
+from services.claude_llm import claude_completion_async
 
 load_dotenv()
 
@@ -106,8 +108,8 @@ async def discover_viral_moments(
     transcription_data: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
     """
-    Analyze transcript and discover viral moments using GPT-4o.
-    GPT decides how many clips to return (only score ≥7, no fixed count).
+    Analyze transcript and discover viral moments using Claude.
+    Model decides how many clips to return (only score ≥8, no fixed count).
     
     Args:
         transcription_data: Full transcription with segments and timestamps
@@ -115,9 +117,8 @@ async def discover_viral_moments(
     Returns:
         List of viral moment dictionaries with start_time, end_time, title, viral_score, hook
     """
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        print("[WARN] OPENAI_API_KEY not set - cannot discover viral moments")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        print("[WARN] ANTHROPIC_API_KEY not set - cannot discover viral moments")
         return []
     
     # Build transcript with timestamps for context
@@ -152,34 +153,26 @@ Include the "why_hook_works" field for each clip.
 Return a JSON array of viral moments. Each item must have: start_time, end_time, title, viral_score, hook, why_hook_works."""
     
     try:
-        from openai import AsyncOpenAI
-        client = AsyncOpenAI(api_key=api_key)
-        
         print(f"🔍 Analyzing transcript for viral moments ({len(segments)} segments)...")
         
         raw_response = None
         last_error = None
         for attempt in range(1, 4):
             try:
-                response = await client.chat.completions.create(
-                    model="gpt-4o",
-                    messages=[
-                        {"role": "system", "content": VIRAL_SCOUT_SYSTEM_PROMPT},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    temperature=0.7,
+                raw_response = await claude_completion_async(
+                    system=VIRAL_SCOUT_SYSTEM_PROMPT,
+                    user=user_prompt,
                     max_tokens=4096,
                 )
-                raw_response = (response.choices[0].message.content or "").strip()
                 break
             except Exception as e:
                 last_error = e
                 wait = 2 ** (attempt - 1)
-                print(f"[WARN] OpenAI attempt {attempt}/3 failed: {e}. Retrying in {wait}s...")
+                print(f"[WARN] Claude attempt {attempt}/3 failed: {e}. Retrying in {wait}s...")
                 await asyncio.sleep(wait)
         
         if raw_response is None:
-            raise last_error or Exception("All OpenAI retries failed")
+            raise last_error or Exception("All Claude retries failed")
         
         # Clean markdown code blocks if present
         raw_response = re.sub(r"^```\w*\s*", "", raw_response)
@@ -266,7 +259,7 @@ async def get_semantic_subtitle_chunks(
     preserve_timing: bool = True
 ) -> List[Dict[str, Any]]:
     """
-    Use GPT-4o to create semantic subtitle chunks instead of fixed word counts.
+    Use Claude to create semantic subtitle chunks instead of fixed word counts.
     Each chunk represents a complete thought or natural pause.
     
     Args:
@@ -277,8 +270,7 @@ async def get_semantic_subtitle_chunks(
     Returns:
         List of semantic chunks with text, start, and end times
     """
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key or not segment_text.strip() or not segment_words:
+    if not os.getenv("ANTHROPIC_API_KEY") or not segment_text.strip() or not segment_words:
         # Fallback: return original words as single chunk
         if segment_words:
             return [{
@@ -313,35 +305,24 @@ Words (index:text):
 Return ONLY JSON array of chunks."""
     
     try:
-        from openai import AsyncOpenAI
-        client = AsyncOpenAI(api_key=api_key)
-        
         raw_response = None
         last_error = None
         for attempt in range(1, 4):
             try:
-                response = await client.chat.completions.create(
-                    model="gpt-4o",
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": "You are a subtitle editor. Group words into semantic chunks for optimal readability. Return only JSON."
-                        },
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    temperature=0.3,
+                raw_response = await claude_completion_async(
+                    system="You are a subtitle editor. Group words into semantic chunks for optimal readability. Return only JSON.",
+                    user=user_prompt,
                     max_tokens=1024,
                 )
-                raw_response = (response.choices[0].message.content or "").strip()
                 break
             except Exception as e:
                 last_error = e
                 wait = 2 ** (attempt - 1)
-                print(f"[WARN] OpenAI subtitle chunk attempt {attempt}/3 failed: {e}. Retrying in {wait}s...")
+                print(f"[WARN] Claude subtitle chunk attempt {attempt}/3 failed: {e}. Retrying in {wait}s...")
                 await asyncio.sleep(wait)
         
         if raw_response is None:
-            raise last_error or Exception("All OpenAI retries failed")
+            raise last_error or Exception("All Claude retries failed")
         
         raw_response = re.sub(r"^```\w*\s*", "", raw_response)
         raw_response = re.sub(r"\s*```\s*$", "", raw_response)
@@ -385,7 +366,7 @@ Return ONLY JSON array of chunks."""
                 "words": chunk_words
             })
         
-        # Guard: if GPT missed any words, fall back to simple chunking
+        # Guard: if the model missed any words, fall back to simple chunking
         all_indices = set(range(len(segment_words)))
         missing = all_indices - covered_indices
         if missing:

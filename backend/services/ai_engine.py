@@ -1,9 +1,8 @@
 """
-AI engine: OpenAI GPT-4o for transcript correction (no Gemini dependency).
+Legacy helpers for aligning edited subtitle text with word timings.
+OpenAI transcript correction paths are intentionally disabled — Whisper-only ASR uses apply_word_corrections().
 """
 
-import json
-import os
 import re
 from typing import List, Dict, Any
 
@@ -45,51 +44,11 @@ def _similarity(a: str, b: str) -> float:
 _PUNCT_RE = re.compile(r"[^\w]", re.UNICODE)
 _FUZZY_THRESHOLD = 0.72
 _FUZZY_THRESHOLD_SHORT = 0.55  # Lower threshold for short words (<=8 chars) — catches отдежда->одежда
-_MATCH_RATE_MIN  = 0.85  # Revert if GPT changed more than 15% of words
+_MATCH_RATE_MIN  = 0.85  # Revert if correction diverges from too many original words
 
 
 def _norm_word(s: str) -> str:
     return _PUNCT_RE.sub("", s).lower()
-
-SYSTEM_PROMPT_RU = """Ты — профессиональный редактор субтитров. Твоя единственная задача — исправить ТОЛЬКО опечатки и ошибки распознавания брендов/имён.
-
-КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО:
-- Менять порядок слов
-- Удалять слова (любые — включая "ну", "вот", "эм", "типа")
-- Упрощать или перефразировать речь спикера
-- Объединять или разбивать фразы
-- Менять стиль, сленг, интонацию
-
-РАЗРЕШЕНО ТОЛЬКО:
-1. Исправлять фонетические искажения брендов и имён:
-   - "Сава Спарк" / "Саус Парке" -> "South Park"
-   - "понь то вью" -> "point of view"
-   - "Волк культура" -> "Woke culture"
-   - "Картман" -> "Cartman"
-2. Исправлять явные опечатки ASR (одно слово на одно слово).
-
-КРИТИЧНО: На выходе должно быть РОВНО столько же слов, сколько на входе.
-Если сомневаешься — оставь слово как есть.
-Верни ТОЛЬКО исправленный текст. Никаких объяснений.
-"""
-
-SEGMENTS_SYSTEM_PROMPT = """Ты — редактор субтитров. Тебе дадут нумерованный список фраз (сегментов) из ASR.
-Верни JSON-массив ровно из того же количества элементов: элемент i — исправленный текст сегмента i.
-
-КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО:
-- Удалять слова
-- Менять порядок слов
-- Перефразировать или упрощать речь
-- Объединять или разбивать сегменты
-
-РАЗРЕШЕНО ТОЛЬКО:
-- Исправлять бренды/имена: "South Park", "point of view", "Woke", "Cartman" и т.п.
-- Исправлять явные однословные ASR-ошибки (одно слово -> одно слово)
-
-КРИТИЧНО: количество слов в каждом исправленном сегменте должно быть равно оригиналу.
-Пустой сегмент → пустая строка ""
-Ничего кроме JSON-массива в ответе"""
-
 
 def _apply_corrected_segment_text(segment: Dict[str, Any], corrected_text: str) -> None:
     """
@@ -174,74 +133,12 @@ def _apply_corrected_segment_text(segment: Dict[str, Any], corrected_text: str) 
 
 async def fix_transcript_with_openai(raw_text: str) -> str:
     """
-    Correct ASR transcript using OpenAI GPT-4o (cultural context, anglicisms, brands).
-    Returns the corrected text only. If OpenAI is unavailable, returns original.
+    Deprecated no-op kept for backwards compatibility.
+    Whisper ASR correction is intentionally not delegated to GPT.
     """
-    if not raw_text or not raw_text.strip():
-        return raw_text
-
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        return raw_text
-
-    try:
-        from openai import AsyncOpenAI
-        client = AsyncOpenAI(api_key=api_key)
-        response = await client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT_RU},
-                {"role": "user", "content": raw_text},
-            ],
-            temperature=0.3,
-            max_tokens=4096,
-        )
-        corrected = (response.choices[0].message.content or "").strip()
-        return corrected if corrected else raw_text
-    except Exception:
-        return raw_text
+    return raw_text or ""
 
 
 async def fix_segments_with_openai(segments: List[Dict[str, Any]]) -> None:
-    """
-    Correct each segment's text (and word-level text) so burned-in subtitles show
-    the right wording (e.g. "point of view" instead of "поинт оф ю"). Updates segments in place.
-    """
-    if not segments:
-        return
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        return
-    texts = [s.get("text", "") or "" for s in segments]
-    if not any(t.strip() for t in texts):
-        return
-    try:
-        from openai import AsyncOpenAI
-        client = AsyncOpenAI(api_key=api_key)
-        n = len(segments)
-        user = f"Исправь ровно {n} сегментов, верни JSON-массив из {n} строк.\nСегменты:\n" + "\n".join(f"{i+1}. {t}" for i, t in enumerate(texts))
-        response = await client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": SEGMENTS_SYSTEM_PROMPT},
-                {"role": "user", "content": user},
-            ],
-            temperature=0.3,
-            max_tokens=4096,
-        )
-        raw = (response.choices[0].message.content or "").strip()
-        raw = re.sub(r"^```\w*\s*", "", raw)
-        raw = re.sub(r"\s*```\s*$", "", raw)
-        corrected_list = json.loads(raw)
-        if not isinstance(corrected_list, list) or len(corrected_list) != len(segments):
-            print(f"    [correction] GPT returned wrong count: {len(corrected_list)} vs {len(segments)}")
-            return
-        for seg, corrected in zip(segments, corrected_list):
-            if isinstance(corrected, str) and corrected.strip():
-                orig_words = seg.get('words', [])
-                _apply_corrected_segment_text(seg, corrected.strip())
-                # Check match rate
-                filler_count = sum(1 for w in seg.get('words', []) if w.get('_filler'))
-                print(f"    [correction] Applied: {len(orig_words)} words, {filler_count} marked filler")
-    except Exception as e:
-        print(f"    [correction] ERROR: {e}")
+    """Deprecated no-op — segments unchanged."""
+    _ = segments

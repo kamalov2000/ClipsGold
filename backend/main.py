@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks, Request, Depends
+from fastapi import FastAPI, File, UploadFile, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks, Request, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -1544,8 +1544,8 @@ def patch_transcription(
 @app.post("/analyze/{file_id}")
 async def analyze_video(
     file_id: str,
-    provider: str = "openai",
-    max_clips: int = 5,
+    provider: str = "claude",
+    max_clips: int = Query(5, ge=1, le=15),
     current_user: User = Depends(get_current_user),
 ):
     """HUMAN-IN-THE-LOOP: Analyze video and store candidates (no rendering yet)"""
@@ -1610,8 +1610,8 @@ async def analyze_video_autonomous(
     current_user: User = Depends(get_current_user),
 ):
     """
-    AUTONOMOUS AI FACTORY: Discover viral moments using GPT-4o.
-    Analyzes transcript and returns 3-5 high-impact segments with viral scores.
+    AUTONOMOUS AI FACTORY: Discover viral moments using Claude.
+    Analyzes transcript and returns high-impact segments with viral scores.
     """
     input_file = UPLOAD_DIR / f"{file_id}.mp4"
     transcription_file = OUTPUT_DIR / f"{file_id}_transcription.json"
@@ -1630,14 +1630,14 @@ async def analyze_video_autonomous(
         with transcription_file.open("r", encoding="utf-8") as f:
             transcription_data = json.load(f)
         
-        # Discover viral moments using GPT-4o
+        # Discover viral moments using Claude
         print(f"🤖 Starting autonomous viral moment discovery for {file_id}...")
         viral_moments = await discover_viral_moments(transcription_data)
         
         if not viral_moments:
             raise HTTPException(
                 status_code=500,
-                detail="No viral moments discovered. Check OPENAI_API_KEY or transcript quality."
+                detail="No viral moments discovered. Check ANTHROPIC_API_KEY or transcript quality."
             )
         
         # Convert viral moments to clip candidates format
@@ -1967,7 +1967,6 @@ async def extract_viral_clips(
 async def download_clip(
     file_id: str,
     clip_id: int,
-    current_user: User = Depends(get_current_user),
 ):
     # Try to find clip with any pattern (legacy, suffixed, or hashed)
     # First try exact match (legacy)

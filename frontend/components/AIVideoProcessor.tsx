@@ -73,7 +73,7 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
   const [renderedClips, setRenderedClips] = useState<ViralClip[]>([])
   const [downloadingClips, setDownloadingClips] = useState<Set<number>>(new Set())
   const [error, setError] = useState<string | null>(null)
-  const provider = 'openai'
+  const provider = 'claude'
   const [maxClips, setMaxClips] = useState<number>(5)
   const [targetPlatform, setTargetPlatform] = useState<'tiktok' | 'youtube' | 'instagram'>('tiktok')
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
@@ -98,7 +98,7 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
   // Jump-cut toggle (global)
   const [enableJumpCut, setEnableJumpCut] = useState(false)
 
-  // Editable timecodes per candidate (overrides GPT values when rendering)
+  // Editable timecodes per candidate (overrides AI values when rendering)
   const [clipTimecodes, setClipTimecodes] = useState<{[key: number]: { start: string; end: string } }>({})
 
   // Clip social metadata
@@ -603,7 +603,7 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
           <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
           <span className="ml-3 text-gray-700 font-medium">
             {transcribing && 'Transcribing video with Whisper...'}
-            {analyzing && 'Analyzing with GPT-4o...'}
+            {analyzing && 'Analyzing with Claude...'}
             {renderingClips.size > 0 && `Rendering ${renderingClips.size} clip(s)...`}
           </span>
         </div>

@@ -35,7 +35,7 @@ for i, seg in enumerate(segments, 1):
     words = seg.get('words', [])
     print(f"   Seg {i}: {seg['start']:.1f}-{seg['end']:.1f}s | {len(words)} words")
 
-print("\n2. GPT-4o correction (fix misrecognized words, keep timestamps)...")
+print("\n2. Legacy correction step (no-op; timestamps preserved)...")
 import asyncio
 asyncio.run(fix_segments_with_openai(segments))
 print("   Done")

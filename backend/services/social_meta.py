@@ -1,5 +1,5 @@
 """
-Social Metadata Generator: GPT-4o generates title, description, hashtags for a rendered clip.
+Social Metadata Generator: Claude generates title, description, hashtags for a rendered clip.
 Saves result as {clip_id}_meta.json in the output directory.
 """
 
@@ -10,6 +10,8 @@ import asyncio
 from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
+
+from services.claude_llm import claude_completion_async
 
 load_dotenv()
 
@@ -39,11 +41,10 @@ async def generate_social_metadata(
     output_path: Optional[Path] = None,
 ) -> dict:
     """
-    Generate social metadata for a clip using GPT-4o.
+    Generate social metadata for a clip using Claude.
     Saves to output_path as JSON if provided.
     Returns dict with title, description, hashtags, cta.
     """
-    api_key = os.getenv("OPENAI_API_KEY")
     fallback = {
         "title": clip_title[:60].upper(),
         "description": f"{clip_title} 🔥 Watch till the end!",
@@ -51,7 +52,7 @@ async def generate_social_metadata(
         "cta": "Follow for more 🔥",
     }
 
-    if not api_key or not clip_transcript.strip():
+    if not os.getenv("ANTHROPIC_API_KEY") or not clip_transcript.strip():
         if output_path:
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text(json.dumps(fallback, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -66,39 +67,28 @@ Generate metadata JSON."""
 
     raw = None
     last_err = None
-    try:
-        from openai import AsyncOpenAI
-        client = AsyncOpenAI(api_key=api_key)
-        for attempt in range(1, 4):
-            try:
-                response = await client.chat.completions.create(
-                    model="gpt-4o",
-                    messages=[
-                        {"role": "system", "content": SOCIAL_META_SYSTEM_PROMPT},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    temperature=0.7,
-                    max_tokens=512,
-                )
-                raw = (response.choices[0].message.content or "").strip()
-                break
-            except Exception as e:
-                last_err = e
-                wait = 2 ** (attempt - 1)
-                print(f"⚠ Social meta attempt {attempt}/3 failed: {e}. Retrying in {wait}s...")
-                await asyncio.sleep(wait)
-    except Exception as e:
-        print(f"⚠ Social meta OpenAI init failed: {e}")
+    for attempt in range(1, 4):
+        try:
+            raw = await claude_completion_async(
+                system=SOCIAL_META_SYSTEM_PROMPT,
+                user=user_prompt,
+                max_tokens=512,
+            )
+            break
+        except Exception as e:
+            last_err = e
+            wait = 2 ** (attempt - 1)
+            print(f"⚠ Social meta attempt {attempt}/3 failed: {e}. Retrying in {wait}s...")
+            await asyncio.sleep(wait)
 
     if not raw:
         print(f"⚠ Social meta: all retries failed ({last_err}), using fallback")
         result = fallback
     else:
         try:
-            raw = re.sub(r"^```\w*\s*", "", raw)
-            raw = re.sub(r"\s*```\s*$", "", raw)
-            result = json.loads(raw)
-            # Ensure required keys
+            raw_clean = re.sub(r"^```\w*\s*", "", raw)
+            raw_clean = re.sub(r"\s*```\s*$", "", raw_clean)
+            result = json.loads(raw_clean)
             for k, v in fallback.items():
                 result.setdefault(k, v)
             print(f"✓ Social metadata generated: {result.get('title', '')[:50]}")

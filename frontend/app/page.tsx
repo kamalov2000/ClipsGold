@@ -42,7 +42,7 @@ export default function Home() {
               ClipsGold
             </h1>
             <p className="text-gray-300 text-lg">
-              AI-Powered Viral Clip Detection with Whisper & GPT-4o
+              AI-Powered Viral Clip Detection with Whisper & Claude
             </p>
             {isAuthed && (
               <button

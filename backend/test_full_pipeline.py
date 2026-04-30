@@ -75,7 +75,7 @@ except Exception as e:
     sys.exit(1)
 
 print("\n" + "=" * 60)
-print("STEP 2: VIRAL MOMENT ANALYSIS (GPT-4o/Gemini)")
+print("STEP 2: VIRAL MOMENT ANALYSIS (Claude / mock)")
 print("=" * 60)
 
 try:

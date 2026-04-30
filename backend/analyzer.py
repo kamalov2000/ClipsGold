@@ -12,6 +12,8 @@ except ImportError:
     ANTHROPIC_AVAILABLE = False
     anthropic = None  # type: ignore
 
+from services.claude_llm import CLAUDE_ANALYSIS_MODEL
+
 
 # ── System prompt shared across all Claude calls ──────────────
 _SYSTEM_PROMPT = (
@@ -25,10 +27,9 @@ _SYSTEM_PROMPT = (
 def _build_analysis_prompt(
     transcription: str,
     video_duration: float,
-    min_clips: int,
-    max_clips: int,
+    clip_count: int,
 ) -> str:
-    return f"""Analyze the transcript below and identify between {min_clips} and {max_clips} viral-worthy moments.
+    return f"""Analyze the transcript below and identify exactly {clip_count} viral-worthy moments (no more, no fewer).
 
 Video duration: {video_duration:.1f} seconds ({video_duration / 60:.1f} minutes)
 
@@ -82,7 +83,8 @@ HOOK QUALITY (pick the best match):
   ]
 }}
 
-Identify the {min_clips}–{max_clips} highest-potential moments. Use precise timestamps aligned to sentence boundaries."""
+Identify exactly {clip_count} highest-potential moments. Use precise timestamps aligned to sentence boundaries.
+The JSON \"clips\" array MUST contain exactly {clip_count} objects."""
 
 
 # ── Mock analyzer (no API calls — for testing) ────────────────
@@ -161,9 +163,9 @@ class MockAnalyzer:
 # ── Claude-powered analyzer ───────────────────────────────────
 
 class ClaudeAnalyzer:
-    """Viral clip analyzer powered by Claude claude-sonnet-4-5."""
+    """Viral clip analyzer powered by Claude (Anthropic)."""
 
-    _MODEL = "claude-sonnet-4-5"
+    _MODEL = CLAUDE_ANALYSIS_MODEL
 
     def __init__(self, provider: str = "claude"):
         self.provider = "claude"
@@ -221,19 +223,16 @@ class ClaudeAnalyzer:
         """
         Find viral moments in the transcript using Claude.
 
-        Always requests 8–15 clips (minimum 8 regardless of max_clips).
-        Returns up to max(max_clips, 8) results sorted by virality_score desc.
+        Respects caller's ``max_clips`` (clamped to 1–15): the prompt asks for
+        exactly that many clips; results are capped to the same count.
         """
-        min_clips = 8
-        effective_max = max(min_clips, min(15, max_clips))
+        clip_count = max(1, min(15, int(max_clips)))
 
-        prompt = _build_analysis_prompt(
-            transcription, video_duration, min_clips, effective_max
-        )
+        prompt = _build_analysis_prompt(transcription, video_duration, clip_count)
 
         print(
             f"[DEBUG] ClaudeAnalyzer.analyze_transcription: "
-            f"requesting {min_clips}–{effective_max} clips, "
+            f"requesting exactly {clip_count} clips, "
             f"video={video_duration:.1f}s"
         )
 
@@ -254,7 +253,7 @@ class ClaudeAnalyzer:
                 clips = self._parse_json_response(raw_text)
                 if clips:
                     print(f"[OK] Parsed {len(clips)} clips from Claude")
-                    return self._validate_clips(clips, video_duration, effective_max)
+                    return self._validate_clips(clips, video_duration, clip_count)
 
                 print("[WARN] Claude returned an empty clips list — retrying …")
                 last_error = ValueError("Empty clips list in Claude response")
@@ -420,12 +419,12 @@ class ClaudeAnalyzer:
 ViralClipAnalyzer = ClaudeAnalyzer
 
 
-def create_analyzer(provider: str = "openai") -> "ClaudeAnalyzer | MockAnalyzer":
+def create_analyzer(provider: str = "claude") -> "ClaudeAnalyzer | MockAnalyzer":
     """
     Factory for clip analyzers.
 
     - "mock"              → MockAnalyzer  (no API, for testing)
-    - "claude" / "openai" → ClaudeAnalyzer (OpenAI replaced by Claude)
+    - "claude" / "openai" → ClaudeAnalyzer (legacy alias "openai" → Claude)
     """
     if provider.lower() == "mock":
         return MockAnalyzer()

@@ -86,7 +86,7 @@ def get_owned_render_job(
 ) -> RenderJob:
     """
     Resolve task_id → RenderJob and assert ownership.
-    Use on /ws/render-progress/{task_id} and /download-clip endpoints.
+    Use on /ws/render-progress/{task_id} and authenticated download flows.
     """
     job = (
         db.query(RenderJob)

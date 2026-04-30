@@ -37,7 +37,7 @@ SUBTITLE_STYLES = {
 
 
 class SubtitleGeneratorV2:
-    """Subtitle generator with multiple style presets and semantic chunking via GPT-4o"""
+    """Subtitle generator with multiple style presets and optional Claude semantic chunking."""
     
     def __init__(self, use_semantic_chunking: bool = True):
         self.use_semantic_chunking = use_semantic_chunking
@@ -208,13 +208,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     
     def _translate_segments(self, segments: List[Dict], target_language: str) -> List[Dict]:
         """
-        Translate segment texts to target_language using GPT-4o.
+        Translate segment texts using Claude (Anthropic).
         Reconstructs word-level timings by distributing proportionally across translated words.
         target_language: 'en' (English) or 'ru' (Russian)
         """
         import os
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
+        from services.claude_llm import claude_completion_sync
+
+        if not os.getenv("ANTHROPIC_API_KEY"):
             return segments
 
         lang_name = "English" if target_language == "en" else "Russian"
@@ -227,15 +228,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         prompt = f"Translate each line to {lang_name}. Return ONLY the translated lines in the same order, one per line, no numbering.\n\n" + "\n".join(texts)
 
         try:
-            from openai import OpenAI
-            client = OpenAI(api_key=api_key)
-            response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=2048,
-            )
-            translated_lines = (response.choices[0].message.content or "").strip().split("\n")
+            translated = claude_completion_sync(user=prompt, system=None, max_tokens=2048)
+            translated_lines = translated.strip().split("\n")
         except Exception as e:
             print(f"  [WARN] Translation failed: {e}")
             return segments
@@ -361,7 +355,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             
             total_words += len(clip_words)
             
-            # SEMANTIC CHUNKING: Use GPT-4o to create intelligent phrase groups
+            # SEMANTIC CHUNKING: Claude groups phrases for readability
             if self.use_semantic_chunking:
                 # Get semantic chunks from AI (async call needs to be run in event loop)
                 segment_text = segment.get("text", "")
@@ -441,7 +435,7 @@ def create_subtitle_generator(use_semantic_chunking: bool = True) -> SubtitleGen
     Create subtitle generator with optional semantic chunking.
     
     Args:
-        use_semantic_chunking: If True, uses GPT-4o for intelligent phrase grouping.
+        use_semantic_chunking: If True, uses Claude for phrase grouping where configured.
                                If False, uses traditional fixed 3-word chunks.
     """
     return SubtitleGeneratorV2(use_semantic_chunking=use_semantic_chunking)
