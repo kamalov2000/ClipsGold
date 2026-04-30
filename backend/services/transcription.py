@@ -3,19 +3,28 @@ Transcription service: OpenAI Whisper API with auto-chunking for large files.
 No local model — cloud-based, fast, language auto-detected.
 """
 
+from __future__ import annotations
+
+import asyncio
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Awaitable, Callable, Dict, List, Optional, Tuple, Union
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 # OpenAI Whisper API file size limit. 24MB leaves margin under the 25MB hard limit.
 _OPENAI_MAX_BYTES = 24 * 1024 * 1024
 # Chunk duration when splitting large audio files
 _CHUNK_SECONDS = 600  # 10 minutes → ~5MB at 64kbps mono
+# Per-chunk API limits (replaces a single long global HTTP wait)
+_CHUNK_API_TIMEOUT_SEC = 300
+_CHUNK_MAX_RETRIES = 2  # after first failure → 3 attempts total
+_PARALLEL_CHUNKS_DEFAULT = 3
 
 # OpenAI returns full language names; map to ISO 639-1 codes used elsewhere.
 _LANG_TO_CODE = {
@@ -202,73 +211,211 @@ def _transcribe_one(client, audio_path: Path, prompt: str) -> dict:
     return _api_response_to_dict(resp)
 
 
-def run_whisper_transcribe(
+async def _transcribe_one_async(client, audio_path: Path, prompt: str) -> dict:
+    """Async OpenAI Whisper call for one chunk."""
+    import io
+
+    import aiofiles
+
+    async with aiofiles.open(audio_path, "rb") as f:
+        content = await f.read()
+    bio = io.BytesIO(content)
+    bio.name = audio_path.name
+    resp = await client.audio.transcriptions.create(
+        model="whisper-1",
+        file=bio,
+        response_format="verbose_json",
+        timestamp_granularities=["word", "segment"],
+        prompt=prompt,
+    )
+    return _api_response_to_dict(resp)
+
+
+async def _transcribe_chunk_with_retries(client, chunk_path: Path, prompt: str) -> Tuple[Optional[dict], Optional[str]]:
+    """Up to 3 attempts per chunk with 300s cap each. Returns (result, skip_reason)."""
+    last_msg: Optional[str] = None
+    for attempt in range(_CHUNK_MAX_RETRIES + 1):
+        try:
+            raw = await asyncio.wait_for(
+                _transcribe_one_async(client, chunk_path, prompt),
+                timeout=_CHUNK_API_TIMEOUT_SEC,
+            )
+            return raw, None
+        except asyncio.TimeoutError:
+            last_msg = f"timeout after {_CHUNK_API_TIMEOUT_SEC}s"
+        except Exception as e:
+            last_msg = str(e)
+        if attempt < _CHUNK_MAX_RETRIES:
+            await asyncio.sleep(min(8.0, 2 ** attempt))
+
+    print(f"[transcription] Chunk failed after retries: {chunk_path.name} ({last_msg})")
+    return None, last_msg or "unknown error"
+
+
+OnChunkDone = Callable[[int, int], Awaitable[None]]
+
+
+def _prepare_split_chunks(audio_path: Path, chunk_sec: int) -> Tuple[str, List[Tuple[Path, float]]]:
+    tmpdir = tempfile.mkdtemp(prefix="cg_whisper_chunks_")
+    try:
+        chunks = _split_audio(audio_path, chunk_sec, tmpdir)
+        return tmpdir, chunks
+    except Exception:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        raise
+
+
+async def run_whisper_transcribe_async(
     audio_path: Path,
     word_timestamps: bool = True,
     initial_prompt: Optional[str] = None,
-):
+    on_chunk_done: Optional[OnChunkDone] = None,
+    parallel_chunks: int = _PARALLEL_CHUNKS_DEFAULT,
+) -> Tuple[dict, List[Dict]]:
     """
-    Transcribe audio via OpenAI Whisper API.
+    Transcribe with optional progress callback after each logical chunk completes.
+    Large files run up to `parallel_chunks` API calls concurrently.
 
-    Files > 24MB are automatically split into 10-minute chunks via ffmpeg,
-    each chunk is transcribed separately, and results are merged with correct
-    absolute timestamps.
-
-    Returns a dict in the same format as the previous local Whisper backends:
-      {"text": str, "language": str, "segments": [...]}
+    Returns (result_dict, skipped_chunks_metadata).
     """
-    from openai import OpenAI
+    from openai import AsyncOpenAI
+
+    del word_timestamps  # Whisper API always returns word timestamps here
 
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is not set")
 
-    client = OpenAI(api_key=api_key)
     prompt = (initial_prompt or INITIAL_PROMPT_TERMS)[:500]
-    file_size = audio_path.stat().st_size
+    path = Path(audio_path)
+    file_size = path.stat().st_size
 
-    print(f"[transcription] OpenAI Whisper API | {audio_path.name} | {file_size/1024/1024:.1f}MB")
+    print(f"[transcription] OpenAI Whisper API | {path.name} | {file_size/1024/1024:.1f}MB")
+
+    client = AsyncOpenAI(api_key=api_key)
+    skipped_chunks: List[Dict] = []
+
+    async def _notify(done: int, total: int) -> None:
+        if on_chunk_done:
+            await on_chunk_done(done, total)
 
     if file_size <= _OPENAI_MAX_BYTES:
-        # ── Fast path: single API call ──────────────────────────────────
-        result = _transcribe_one(client, audio_path, prompt)
+        await _notify(0, 1)
+        chunk_result, errmsg = await _transcribe_chunk_with_retries(client, path, prompt)
+        await _notify(1, 1)
+        if errmsg or chunk_result is None:
+            raise RuntimeError(f"Transcription failed: {errmsg or 'empty response'}")
+        result = chunk_result
         print(f"[transcription] Done | lang={result.get('language')} "
               f"| segments={len(result.get('segments', []))}")
-    else:
-        # ── Large file: split → transcribe each chunk → merge ───────────
-        print(f"[transcription] File > 24MB — splitting into {_CHUNK_SECONDS}s chunks")
-        with tempfile.TemporaryDirectory() as tmpdir:
-            chunks = _split_audio(audio_path, _CHUNK_SECONDS, tmpdir)
+        apply_word_corrections(result["segments"])
+        return result, skipped_chunks
 
-            all_text = []
-            all_segments = []
-            detected_lang = ""
-            seg_id_offset = 0
+    print(f"[transcription] File > 24MB — splitting into {_CHUNK_SECONDS}s chunks "
+          f"(parallel={parallel_chunks})")
 
-            for i, (chunk_path, time_offset) in enumerate(chunks):
-                sz = chunk_path.stat().st_size
-                print(f"[transcription] Chunk {i+1}/{len(chunks)} "
-                      f"offset={time_offset:.0f}s size={sz/1024:.0f}KB")
-                chunk_result = _transcribe_one(client, chunk_path, prompt)
+    tmpdir, chunks = await asyncio.to_thread(_prepare_split_chunks, path, _CHUNK_SECONDS)
+    n = len(chunks)
+    results: Dict[int, Tuple[str, float, Optional[dict], Optional[str]]] = {}
+    par = max(1, int(parallel_chunks))
+    audio_total = await asyncio.to_thread(_ffprobe_duration, path)
 
+    try:
+        await _notify(0, n)
+        completed = 0
+
+        for batch_start in range(0, n, par):
+            batch_idxs = list(range(batch_start, min(batch_start + par, n)))
+
+            async def _work(ci: int) -> Tuple[int, float, Optional[dict], Optional[str]]:
+                cpath, toff = chunks[ci]
+                res, errmsg = await _transcribe_chunk_with_retries(client, cpath, prompt)
+                return ci, toff, res, errmsg
+
+            tasks = [asyncio.create_task(_work(i)) for i in batch_idxs]
+            for fut in asyncio.as_completed(tasks):
+                i, toff, chunk_result, errmsg = await fut
+                if errmsg or chunk_result is None:
+                    skipped_chunks.append({"chunk_index": i, "error": errmsg or "?"})
+                    results[i] = ("skip", toff, None, errmsg)
+                else:
+                    results[i] = ("ok", toff, chunk_result, None)
+                completed += 1
+                await _notify(completed, n)
+
+        all_text: List[str] = []
+        all_segments: List = []
+        detected_lang = ""
+        seg_id_offset = 0
+
+        for i in range(n):
+            kind, time_offset, chunk_result, errmsg = results[i]
+            if kind == "ok" and chunk_result is not None:
+                cr = chunk_result
                 if not detected_lang:
-                    detected_lang = chunk_result.get("language", "")
-
+                    detected_lang = cr.get("language", "")
                 if time_offset > 0 or seg_id_offset > 0:
-                    chunk_result = _shift_timestamps(chunk_result, time_offset, seg_id_offset)
-
-                all_text.append(chunk_result["text"].strip())
-                all_segments.extend(chunk_result["segments"])
-                seg_id_offset += len(chunk_result["segments"])
+                    cr = _shift_timestamps(cr, time_offset, seg_id_offset)
+                all_text.append(cr["text"].strip())
+                all_segments.extend(cr["segments"])
+                seg_id_offset += len(cr["segments"])
+            else:
+                cpath, toff = chunks[i]
+                chunk_dur = await asyncio.to_thread(_ffprobe_duration, cpath)
+                if chunk_dur <= 0:
+                    chunk_dur = float(_CHUNK_SECONDS)
+                end_t = min(toff + chunk_dur, audio_total) if audio_total > 0 else toff + chunk_dur
+                placeholder = {
+                    "id": seg_id_offset,
+                    "start": round(toff, 3),
+                    "end": round(end_t, 3),
+                    "text": f"[Не расшифровано — фрагмент {i + 1}: {errmsg or '?'}]",
+                    "words": [],
+                    "_chunk_skipped": True,
+                }
+                all_segments.append(placeholder)
+                all_text.append(placeholder["text"])
+                seg_id_offset += 1
 
         result = {
-            "text":     " ".join(all_text),
+            "text": " ".join(all_text),
             "language": detected_lang,
             "segments": all_segments,
         }
-        print(f"[transcription] Merged {len(all_segments)} segments | lang={detected_lang}")
+        print(f"[transcription] Merged {len(all_segments)} segments | lang={detected_lang} "
+              f"| skipped={len(skipped_chunks)}")
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
     apply_word_corrections(result["segments"])
+    return result, skipped_chunks
+
+
+def run_whisper_transcribe(
+    audio_path: Union[str, Path],
+    word_timestamps: bool = True,
+    initial_prompt: Optional[str] = None,
+):
+    """
+    Transcribe audio via OpenAI Whisper API (sync wrapper).
+
+    Files > 24MB are automatically split into 10-minute chunks via ffmpeg,
+    each chunk is transcribed separately (up to 3 in parallel), and results
+    are merged with correct absolute timestamps.
+
+    Returns a dict in the same format as the previous local Whisper backends:
+      {"text": str, "language": str, "segments": [...]}
+    """
+    path = Path(audio_path) if not isinstance(audio_path, Path) else audio_path
+    result, _skipped = asyncio.run(
+        run_whisper_transcribe_async(
+            path,
+            word_timestamps=word_timestamps,
+            initial_prompt=initial_prompt,
+            on_chunk_done=None,
+            parallel_chunks=_PARALLEL_CHUNKS_DEFAULT,
+        )
+    )
     return result
 
 

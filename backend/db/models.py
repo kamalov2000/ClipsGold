@@ -2,13 +2,14 @@
 SQLAlchemy ORM models — PostgreSQL schema for ClipsGold SaaS.
 
 Tables:
-  organizations  — multi-tenant orgs (optional, for team plans)
-  users          — auth + plan + quota tracking
-  videos         — uploaded/imported video sources
-  transcripts    — Whisper output per video (versioned)
-  clip_candidates— AI-discovered viral moments per video
-  render_jobs    — FFmpeg render tasks with status/progress
-  usage_events   — billing ledger: every expensive action logged here
+  organizations        — multi-tenant orgs (optional, for team plans)
+  users                — auth + plan + quota tracking
+  videos               — uploaded/imported video sources
+  transcripts          — Whisper output per video (versioned)
+  transcription_jobs   — async Whisper jobs (progress, transcript_id)
+  clip_candidates      — AI-discovered viral moments per video
+  render_jobs          — FFmpeg render tasks with status/progress
+  usage_events         — billing ledger: every expensive action logged here
 """
 
 import uuid
@@ -68,6 +69,12 @@ class UsageEventType(str, enum.Enum):
     render_seconds = "render_seconds"
     storage_mb = "storage_mb"
     export = "export"
+
+
+class TranscriptionJobStatus(str, enum.Enum):
+    processing = "processing"
+    done = "done"
+    failed = "failed"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -199,6 +206,35 @@ class Transcript(Base):
     updated_at = Column(DateTime, default=_now, onupdate=_now, nullable=False)
 
     video = relationship("Video", back_populates="transcript")
+
+
+# ─────────────────────────────────────────────────────────────
+# Async transcription jobs (progress + result pointer)
+# ─────────────────────────────────────────────────────────────
+
+
+class TranscriptionJob(Base):
+    __tablename__ = "transcription_jobs"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    file_id = Column(String(36), nullable=False, index=True)
+    owner_id = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+
+    status = Column(
+        SAEnum(TranscriptionJobStatus, values_callable=lambda x: [e.value for e in x], native_enum=False),
+        nullable=False,
+        default=TranscriptionJobStatus.processing,
+    )
+    progress = Column(Integer, nullable=False, default=0)
+    total_chunks = Column(Integer, nullable=False, default=0)
+    error_message = Column(Text, nullable=True)
+    transcript_id = Column(String(36), nullable=True)
+    skipped_chunks_json = Column(JSON, nullable=True)
+
+    created_at = Column(DateTime, default=_now, nullable=False)
+    updated_at = Column(DateTime, default=_now, onupdate=_now, nullable=False)
+
+    __table_args__ = (Index("ix_transcription_jobs_file_owner", "file_id", "owner_id"),)
 
 
 # ─────────────────────────────────────────────────────────────

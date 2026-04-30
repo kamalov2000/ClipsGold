@@ -12,7 +12,10 @@ import uuid
 import json
 from typing import Optional, List, Dict
 import yt_dlp
-from services.transcription import run_whisper_transcribe, INITIAL_PROMPT_TERMS
+from services.transcription import (
+    INITIAL_PROMPT_TERMS,
+    run_whisper_transcribe_async,
+)
 from services.ai_engine import _apply_corrected_segment_text
 from services.viral_scout import discover_viral_moments
 from dotenv import load_dotenv
@@ -37,7 +40,14 @@ import hmac as _hmac
 import hashlib as _hashlib
 from datetime import datetime as _datetime, timedelta as _timedelta
 from db.session import create_tables, get_db, SessionLocal
-from db.models import User, Video, Transcript, VideoStatus
+from db.models import (
+    User,
+    Video,
+    Transcript,
+    VideoStatus,
+    TranscriptionJob,
+    TranscriptionJobStatus,
+)
 from routers.auth import router as auth_router
 from routers.factory import router as factory_router
 
@@ -249,8 +259,8 @@ def _save_transcript_to_db(
     owner_id: str,
     transcript_data: Dict,
     duration_seconds: Optional[float] = None,
-) -> None:
-    """Persist transcript payload into transcripts table (upsert by video_id)."""
+) -> Optional[str]:
+    """Persist transcript payload into transcripts table (upsert by video_id). Returns transcript row id."""
     try:
         with SessionLocal() as db:
             video = (
@@ -260,7 +270,7 @@ def _save_transcript_to_db(
             )
             if not video:
                 log.warning("transcript_save_skipped_no_video", file_id=file_id, owner_id=owner_id)
-                return
+                return None
 
             row = db.query(Transcript).filter(Transcript.video_id == video.id).first()
             if not row:
@@ -279,8 +289,133 @@ def _save_transcript_to_db(
             video.status = VideoStatus.transcribed
             video.error_message = None
             db.commit()
+            db.refresh(row)
+            return str(row.id)
     except Exception as exc:
         log.warning("transcript_save_failed", file_id=file_id, error=str(exc))
+        return None
+
+
+def _touch_video_job_status(
+    file_id: str,
+    owner_id: str,
+    status: VideoStatus,
+    error_message: Optional[str] = None,
+) -> None:
+    try:
+        with SessionLocal() as db:
+            video = (
+                db.query(Video)
+                .filter(Video.file_id == file_id, Video.owner_id == owner_id)
+                .first()
+            )
+            if not video:
+                return
+            video.status = status
+            video.error_message = error_message
+            db.commit()
+    except Exception as exc:
+        log.warning("video_job_status_failed", file_id=file_id, error=str(exc))
+
+
+def _fail_transcription_job(job_id: str, message: str) -> None:
+    try:
+        with SessionLocal() as db:
+            job = db.query(TranscriptionJob).filter(TranscriptionJob.id == job_id).first()
+            if not job:
+                return
+            job.status = TranscriptionJobStatus.failed
+            job.error_message = (message or "")[:4000]
+            db.commit()
+    except Exception as exc:
+        log.warning("transcription_job_fail_update_failed", job_id=job_id, error=str(exc))
+
+
+async def _run_transcription_job(job_id: str, file_id: str, owner_id: str) -> None:
+    input_file = UPLOAD_DIR / f"{file_id}.mp4"
+    audio_file = OUTPUT_DIR / f"{file_id}_audio.mp3"
+
+    def _persist_progress(done: int, total: int) -> None:
+        with SessionLocal() as db:
+            job = db.query(TranscriptionJob).filter(TranscriptionJob.id == job_id).first()
+            if job:
+                job.progress = done
+                job.total_chunks = total
+                db.commit()
+
+    try:
+        with SessionLocal() as db:
+            job = db.query(TranscriptionJob).filter(TranscriptionJob.id == job_id).first()
+            if not job:
+                log.error("transcription_job_missing_row", job_id=job_id)
+                return
+
+        if not input_file.exists():
+            _fail_transcription_job(job_id, "Video file not found")
+            return
+
+        _touch_video_job_status(file_id, owner_id, VideoStatus.transcribing, None)
+
+        video_duration = await asyncio.to_thread(get_video_duration, input_file)
+        await asyncio.to_thread(extract_audio, input_file, audio_file)
+
+        async def on_chunk_done(done: int, total: int) -> None:
+            await asyncio.to_thread(_persist_progress, done, total)
+
+        result, skipped_list = await run_whisper_transcribe_async(
+            audio_path=audio_file,
+            initial_prompt=INITIAL_PROMPT_TERMS,
+            on_chunk_done=on_chunk_done,
+            parallel_chunks=3,
+        )
+
+        try:
+            if audio_file.exists():
+                audio_file.unlink()
+        except OSError:
+            pass
+
+        segments_in = result.get("segments") or []
+        segments = fill_segment_gaps(segments_in, video_duration)
+        result["segments"] = segments
+
+        transcription_file = OUTPUT_DIR / f"{file_id}_transcription.json"
+
+        def _write_transcription_disk() -> None:
+            with transcription_file.open("w", encoding="utf-8") as f:
+                json.dump(result, f, ensure_ascii=False, indent=2)
+
+        await asyncio.to_thread(_write_transcription_disk)
+
+        transcript_id = await asyncio.to_thread(
+            _save_transcript_to_db,
+            file_id,
+            owner_id,
+            result,
+            video_duration,
+        )
+
+        transcription_store[file_id] = result
+
+        with SessionLocal() as db:
+            job = db.query(TranscriptionJob).filter(TranscriptionJob.id == job_id).first()
+            if job:
+                job.status = TranscriptionJobStatus.done
+                job.progress = job.total_chunks or job.progress
+                job.transcript_id = transcript_id
+                job.skipped_chunks_json = skipped_list or None
+                job.error_message = None
+                db.commit()
+
+    except Exception as e:
+        log.exception("transcription_job_error", job_id=job_id, file_id=file_id)
+        try:
+            if audio_file.exists():
+                audio_file.unlink()
+        except OSError:
+            pass
+        _fail_transcription_job(job_id, str(e))
+        _touch_video_job_status(file_id, owner_id, VideoStatus.error, str(e))
 
 
 def _load_transcript_from_db(file_id: str, owner_id: str) -> Optional[Dict]:
@@ -1405,71 +1540,93 @@ async def get_thumbnail(filename: str):
 @app.post("/transcribe/{file_id}")
 async def transcribe_video(
     file_id: str,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
 ):
+    """Start async transcription (returns immediately with job_id)."""
     input_file = UPLOAD_DIR / f"{file_id}.mp4"
-    
+
     if not input_file.exists():
         raise HTTPException(status_code=404, detail="File not found")
-    
-    try:
-        video_duration = get_video_duration(input_file)
-        audio_file = OUTPUT_DIR / f"{file_id}_audio.mp3"
-        extract_audio(input_file, audio_file)
-        
-        try:
-            result = await asyncio.wait_for(
-                asyncio.to_thread(
-                    run_whisper_transcribe,
-                    audio_file,
-                    True,
-                    INITIAL_PROMPT_TERMS,
-                ),
-                timeout=1800,  # 30 min — CPU int8 transcription ~1-3x realtime
+
+    with SessionLocal() as db:
+        existing = (
+            db.query(TranscriptionJob)
+            .filter(
+                TranscriptionJob.file_id == file_id,
+                TranscriptionJob.owner_id == current_user.id,
+                TranscriptionJob.status == TranscriptionJobStatus.processing,
             )
-        except asyncio.TimeoutError:
-            if audio_file.exists():
-                audio_file.unlink()
-            raise HTTPException(
-                status_code=500,
-                detail="Transcription timed out after 30 minutes — video may be too long."
-            )
-        
-        audio_file.unlink()
-        
-        # No LLM post-correction: Whisper output is used directly.
-        segments = result.get("segments") or []
-        # Fill gaps so subtitle timeline covers full video (0 to duration)
-        segments = fill_segment_gaps(segments, video_duration)
-        result["segments"] = segments
-        
-        transcription_file = OUTPUT_DIR / f"{file_id}_transcription.json"
-        with transcription_file.open("w", encoding="utf-8") as f:
-            json.dump(result, f, ensure_ascii=False, indent=2)
-        
-        # Persist to DB so transcript survives restarts.
-        _save_transcript_to_db(
+            .order_by(TranscriptionJob.created_at.desc())
+            .first()
+        )
+        if existing:
+            return {
+                "job_id": str(existing.id),
+                "status": "processing",
+                "message": "Transcription already in progress",
+            }
+
+        job = TranscriptionJob(
             file_id=file_id,
             owner_id=current_user.id,
-            transcript_data=result,
-            duration_seconds=video_duration,
+            status=TranscriptionJobStatus.processing,
+            progress=0,
+            total_chunks=0,
+        )
+        db.add(job)
+        db.commit()
+        db.refresh(job)
+        job_uuid = str(job.id)
+
+    background_tasks.add_task(_run_transcription_job, job_uuid, file_id, current_user.id)
+
+    return {
+        "job_id": job_uuid,
+        "status": "processing",
+        "message": "Transcription started",
+    }
+
+
+@app.get("/transcribe/{file_id}/status")
+def transcribe_job_status(
+    file_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Poll async transcription progress for the latest job on this upload."""
+    with SessionLocal() as db:
+        job = (
+            db.query(TranscriptionJob)
+            .filter(
+                TranscriptionJob.file_id == file_id,
+                TranscriptionJob.owner_id == current_user.id,
+            )
+            .order_by(TranscriptionJob.created_at.desc())
+            .first()
         )
 
-        # Store in memory for rendering
-        transcription_store[file_id] = result
-        
+    if not job:
+        raise HTTPException(status_code=404, detail="No transcription job for this file")
+
+    if job.status == TranscriptionJobStatus.processing:
         return {
-            "transcription": result["text"],
-            "language": result["language"],
-            "segments": result["segments"],
-            "message": "Transcription completed successfully"
+            "status": "processing",
+            "progress": int(job.progress or 0),
+            "total_chunks": int(job.total_chunks or 0),
         }
-    
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Transcription error: {str(e)}"
-        )
+    if job.status == TranscriptionJobStatus.done:
+        payload: Dict[str, object] = {
+            "status": "done",
+            "progress": job.total_chunks or job.progress or 0,
+            "total_chunks": job.total_chunks or 0,
+        }
+        if job.transcript_id:
+            payload["transcript_id"] = job.transcript_id
+        return payload
+    if job.status == TranscriptionJobStatus.failed:
+        err = job.error_message or "Transcription failed"
+        return {"status": "failed", "error": err}
+    return {"status": "unknown"}
 
 
 @app.get("/transcription/{file_id}")

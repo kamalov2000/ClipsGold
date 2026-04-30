@@ -63,6 +63,8 @@ interface ViralClip {
 
 export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoProcessorProps) {
   const [transcribing, setTranscribing] = useState(false)
+  const transcribePollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [transcribeProgress, setTranscribeProgress] = useState<{ progress: number; total: number } | null>(null)
   const [analyzing, setAnalyzing] = useState(false)
   const [transcription, setTranscription] = useState<string | null>(null)
   const [segments, setSegments] = useState<Array<{ start: number; end: number; text: string; words?: Array<{ word: string; start?: number; end?: number }> }>>([])
@@ -122,6 +124,15 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
     }
   }, [])
 
+  useEffect(() => {
+    return () => {
+      if (transcribePollRef.current != null) {
+        clearInterval(transcribePollRef.current)
+        transcribePollRef.current = null
+      }
+    }
+  }, [])
+
   // Load segments for editing when we have transcription but segments empty (e.g. after refresh)
   useEffect(() => {
     if (!transcription || segments.length > 0 || !fileId) return
@@ -134,28 +145,20 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
       .catch(() => {})
   }, [transcription, fileId, segments.length])
 
-  const handleTranscribe = async () => {
-    setTranscribing(true)
-    setError(null)
-
-    try {
-      const response = await api.post(`/transcribe/${fileId}`)
-      setTranscription(response.data.transcription)
-      setSegments(Array.isArray(response.data.segments) ? response.data.segments : [])
-      setSubtitleEditDirty(false)
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Transcription failed')
-    } finally {
-      setTranscribing(false)
+  const clearTranscribePoll = () => {
+    if (transcribePollRef.current != null) {
+      clearInterval(transcribePollRef.current)
+      transcribePollRef.current = null
     }
   }
 
-  const handleAnalyze = async () => {
-    if (!transcription) {
-      setError('Please transcribe the video first')
-      return
-    }
+  const finishTranscriptionUi = () => {
+    clearTranscribePoll()
+    setTranscribing(false)
+    setTranscribeProgress(null)
+  }
 
+  const performAnalyze = async () => {
     setAnalyzing(true)
     setError(null)
 
@@ -163,10 +166,8 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
       const response = await api.post(
         `/analyze/${fileId}?provider=${provider}&max_clips=${maxClips}`
       )
-      // Store candidates, don't auto-render
       setCandidates(response.data.viral_clips)
-      
-      // Initialize manual crop state with AI-detected values
+
       const initialCropX: {[key: number]: number} = {}
       response.data.viral_clips.forEach((candidate: Candidate, index: number) => {
         if (candidate.crop_preview?.crop_x !== undefined) {
@@ -176,7 +177,6 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
       setOriginalCropX(initialCropX)
       setManualCropX({})
 
-      // Default render mode: face_crop if face detected, blur_background otherwise
       const initialRenderModes: {[key: number]: 'face_crop' | 'blur_background'} = {}
       response.data.viral_clips.forEach((candidate: Candidate, index: number) => {
         const mode = candidate.crop_preview?.mode
@@ -189,6 +189,90 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
     } finally {
       setAnalyzing(false)
     }
+  }
+
+  const handleTranscribe = async () => {
+    clearTranscribePoll()
+    setTranscribing(true)
+    setError(null)
+    setTranscribeProgress(null)
+
+    try {
+      await api.post(`/transcribe/${fileId}`)
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Transcription failed')
+      finishTranscriptionUi()
+      return
+    }
+
+    const pollOnce = async (): Promise<boolean> => {
+      try {
+        const { data } = await api.get(`/transcribe/${fileId}/status`)
+        if (data.status === 'processing') {
+          const tot = Number(data.total_chunks) || 0
+          const prog = Number(data.progress) || 0
+          if (tot > 0) {
+            setTranscribeProgress({ progress: prog, total: tot })
+          } else {
+            setTranscribeProgress(null)
+          }
+          return false
+        }
+        if (data.status === 'done') {
+          const tr = await api.get(`/transcription/${fileId}`)
+          const text = typeof tr.data.text === 'string' ? tr.data.text : ''
+          setTranscription(text)
+          setSegments(Array.isArray(tr.data.segments) ? tr.data.segments : [])
+          setSubtitleEditDirty(false)
+          finishTranscriptionUi()
+          await performAnalyze()
+          return true
+        }
+        if (data.status === 'failed') {
+          setError(typeof data.error === 'string' ? data.error : 'Transcription failed')
+          finishTranscriptionUi()
+          return true
+        }
+      } catch (e: any) {
+        setError(e.response?.data?.detail || 'Transcription status failed')
+        finishTranscriptionUi()
+        return true
+      }
+      finishTranscriptionUi()
+      setError('Unknown transcription status')
+      return true
+    }
+
+    try {
+      const stop = await pollOnce()
+      if (stop) return
+    } catch {
+      finishTranscriptionUi()
+      setError('Transcription poll failed')
+      return
+    }
+
+    transcribePollRef.current = setInterval(() => {
+      void (async () => {
+        try {
+          if (await pollOnce()) {
+            clearTranscribePoll()
+          }
+        } catch {
+          finishTranscriptionUi()
+          setError('Transcription poll failed')
+        }
+      })()
+    }, 3000)
+  }
+
+  const handleAnalyze = async () => {
+    if (!transcription) {
+      setError('Please transcribe the video first')
+      return
+    }
+
+    await performAnalyze()
   }
 
   const handleResetCrop = (index: number) => {
@@ -602,9 +686,14 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
         <div className="flex items-center justify-center py-8 bg-purple-50 rounded-xl mb-6">
           <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
           <span className="ml-3 text-gray-700 font-medium">
-            {transcribing && 'Transcribing video with Whisper...'}
-            {analyzing && 'Analyzing with Claude...'}
-            {renderingClips.size > 0 && `Rendering ${renderingClips.size} clip(s)...`}
+            {transcribing &&
+              (transcribeProgress && transcribeProgress.total > 0
+                ? `Транскрибируем… ${transcribeProgress.progress}/${transcribeProgress.total} частей (${Math.round(
+                    (100 * transcribeProgress.progress) / transcribeProgress.total,
+                  )}%)`
+                : 'Подготовка транскрипции…')}
+            {!transcribing && analyzing && 'Analyzing with Claude...'}
+            {!transcribing && !analyzing && renderingClips.size > 0 && `Rendering ${renderingClips.size} clip(s)...`}
           </span>
         </div>
       )}
