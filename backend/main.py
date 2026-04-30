@@ -13,7 +13,7 @@ import json
 from typing import Optional, List, Dict
 import yt_dlp
 from services.transcription import run_whisper_transcribe, INITIAL_PROMPT_TERMS
-from services.ai_engine import fix_transcript_with_openai, fix_segments_with_openai, _apply_corrected_segment_text
+from services.ai_engine import _apply_corrected_segment_text
 from services.viral_scout import discover_viral_moments
 from dotenv import load_dotenv
 import asyncio
@@ -36,8 +36,8 @@ from jose import jwt as _jose_jwt, JWTError as _JWTError
 import hmac as _hmac
 import hashlib as _hashlib
 from datetime import datetime as _datetime, timedelta as _timedelta
-from db.session import create_tables, get_db
-from db.models import User
+from db.session import create_tables, get_db, SessionLocal
+from db.models import User, Video, Transcript, VideoStatus
 from routers.auth import router as auth_router
 from routers.factory import router as factory_router
 
@@ -208,13 +208,30 @@ async def _auto_cleanup_worker():
 
 
 def _restore_transcription_store() -> None:
-    """Re-populate in-memory transcription cache from disk after a container restart.
-
-    Transcription JSONs are persisted to outputs/{file_id}_transcription.json which
-    lives on the mounted Docker volume — they survive restarts.  Without this, every
-    restart forces the user to re-transcribe an already-processed video.
-    """
+    """Re-populate in-memory cache from DB first, then disk fallback."""
     count = 0
+    try:
+        with SessionLocal() as db:
+            rows = (
+                db.query(Video.file_id, Transcript.raw_text, Transcript.refined_text, Transcript.language, Transcript.segments_json)
+                .join(Transcript, Transcript.video_id == Video.id)
+                .all()
+            )
+            for file_id, raw_text, refined_text, language, segments_json in rows:
+                transcription_store[file_id] = {
+                    "text": refined_text or raw_text or "",
+                    "language": language or "",
+                    "segments": segments_json or [],
+                }
+                count += 1
+    except Exception as exc:
+        log.warning("transcription_restore_db_failed", error=str(exc))
+
+    if count:
+        log.info("transcriptions_restored_from_db", count=count)
+        return
+
+    # Backward-compatible fallback for old file-only records.
     for f in OUTPUT_DIR.glob("*_transcription.json"):
         file_id = f.name[: -len("_transcription.json")]
         try:
@@ -225,6 +242,67 @@ def _restore_transcription_store() -> None:
             log.warning("transcription_restore_failed", file_id=file_id, error=str(exc))
     if count:
         log.info("transcriptions_restored_from_disk", count=count)
+
+
+def _save_transcript_to_db(
+    file_id: str,
+    owner_id: str,
+    transcript_data: Dict,
+    duration_seconds: Optional[float] = None,
+) -> None:
+    """Persist transcript payload into transcripts table (upsert by video_id)."""
+    try:
+        with SessionLocal() as db:
+            video = (
+                db.query(Video)
+                .filter(Video.file_id == file_id, Video.owner_id == owner_id)
+                .first()
+            )
+            if not video:
+                log.warning("transcript_save_skipped_no_video", file_id=file_id, owner_id=owner_id)
+                return
+
+            row = db.query(Transcript).filter(Transcript.video_id == video.id).first()
+            if not row:
+                row = Transcript(video_id=video.id)
+                db.add(row)
+
+            text = transcript_data.get("text", "")
+            row.raw_text = text
+            row.refined_text = text
+            row.segments_json = transcript_data.get("segments", [])
+            row.language = transcript_data.get("language")
+            row.whisper_model = "whisper-1"
+            if duration_seconds is not None:
+                row.duration_seconds = duration_seconds
+
+            video.status = VideoStatus.transcribed
+            video.error_message = None
+            db.commit()
+    except Exception as exc:
+        log.warning("transcript_save_failed", file_id=file_id, error=str(exc))
+
+
+def _load_transcript_from_db(file_id: str, owner_id: str) -> Optional[Dict]:
+    """Load transcript payload from transcripts table for a specific owner/file."""
+    try:
+        with SessionLocal() as db:
+            row = (
+                db.query(Transcript)
+                .join(Video, Video.id == Transcript.video_id)
+                .filter(Video.file_id == file_id, Video.owner_id == owner_id)
+                .first()
+            )
+            if not row:
+                return None
+            return {
+                "text": row.refined_text or row.raw_text or "",
+                "language": row.language or "",
+                "segments": row.segments_json or [],
+            }
+    except Exception as exc:
+        log.warning("transcript_load_failed", file_id=file_id, error=str(exc))
+        return None
 
 
 @app.on_event("startup")
@@ -1359,13 +1437,8 @@ async def transcribe_video(
         
         audio_file.unlink()
         
-        # OpenAI GPT-4o correction: full text + segments/words (so subtitles show correct text)
-        raw_text = result.get("text", "")
-        if raw_text and raw_text.strip():
-            result["text"] = await fix_transcript_with_openai(raw_text)
+        # No LLM post-correction: Whisper output is used directly.
         segments = result.get("segments") or []
-        if segments:
-            await fix_segments_with_openai(segments)
         # Fill gaps so subtitle timeline covers full video (0 to duration)
         segments = fill_segment_gaps(segments, video_duration)
         result["segments"] = segments
@@ -1374,6 +1447,14 @@ async def transcribe_video(
         with transcription_file.open("w", encoding="utf-8") as f:
             json.dump(result, f, ensure_ascii=False, indent=2)
         
+        # Persist to DB so transcript survives restarts.
+        _save_transcript_to_db(
+            file_id=file_id,
+            owner_id=current_user.id,
+            transcript_data=result,
+            duration_seconds=video_duration,
+        )
+
         # Store in memory for rendering
         transcription_store[file_id] = result
         
@@ -1399,11 +1480,14 @@ def get_transcription(
     """Return full transcription and segments for editing."""
     data = transcription_store.get(file_id)
     if not data:
+        data = _load_transcript_from_db(file_id=file_id, owner_id=current_user.id)
+    if not data:
         transcription_file = OUTPUT_DIR / f"{file_id}_transcription.json"
         if not transcription_file.exists():
             raise HTTPException(status_code=404, detail="Transcription not found")
         with transcription_file.open("r", encoding="utf-8") as f:
             data = json.load(f)
+    transcription_store[file_id] = data
     return {
         "text": data.get("text", ""),
         "segments": data.get("segments", []),
@@ -1428,6 +1512,8 @@ def patch_transcription(
     """Update segment texts (and words) from user edits. Persists to file and store."""
     data = transcription_store.get(file_id)
     if not data:
+        data = _load_transcript_from_db(file_id=file_id, owner_id=current_user.id)
+    if not data:
         transcription_file = OUTPUT_DIR / f"{file_id}_transcription.json"
         if not transcription_file.exists():
             raise HTTPException(status_code=404, detail="Transcription not found")
@@ -1447,6 +1533,11 @@ def patch_transcription(
     with transcription_file.open("w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     transcription_store[file_id] = data
+    _save_transcript_to_db(
+        file_id=file_id,
+        owner_id=current_user.id,
+        transcript_data=data,
+    )
     return {"text": data["text"], "segments": data["segments"], "message": "Transcription updated"}
 
 

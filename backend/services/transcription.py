@@ -272,37 +272,3 @@ def run_whisper_transcribe(
     return result
 
 
-def refine_transcript(raw_text: str) -> str:
-    """Use GPT to proofread raw ASR output. Returns corrected text only."""
-    if not raw_text or not raw_text.strip():
-        return raw_text
-
-    system = "You are a proofreader. Output ONLY the corrected transcript, no other text."
-    user = (
-        "You are a careful proofreader for speech-to-text output. Correct the following transcript.\n\n"
-        "RULES:\n"
-        "1. Fix misheard words (e.g. 'пизоц' -> 'очень', 'Сава Спарк' -> 'South Park'). Keep language and meaning.\n"
-        "2. Brands and English names stay in English: South Park, Cartman, ClipsGold, YouTube, TikTok, etc.\n"
-        "3. Do NOT omit small words like 'Это', 'даже', 'вот', 'ну', 'так' — only fix clear errors.\n"
-        "4. Preserve structure and tone. Output ONLY the corrected transcript.\n\n"
-        f"Transcript:\n\n{raw_text}"
-    )
-
-    try:
-        if os.getenv("OPENAI_API_KEY"):
-            from openai import OpenAI
-            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "system", "content": system},
-                           {"role": "user",   "content": user}],
-                temperature=0.2,
-                max_tokens=4096,
-            )
-            refined = (response.choices[0].message.content or "").strip()
-            if refined:
-                return refined
-    except Exception:
-        pass
-
-    return raw_text

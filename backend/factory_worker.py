@@ -44,13 +44,7 @@ async def main():
         """Transcribe audio file using Whisper."""
         try:
             from services.transcription import run_whisper_transcribe
-            result = run_whisper_transcribe(audio_path, word_timestamps=True)
-            # Apply GPT correction
-            try:
-                from services.ai_engine import fix_segments_with_openai
-                await fix_segments_with_openai(result.get("segments", []))
-            except Exception as e:
-                log.warning(f"GPT correction skipped: {e}")
+            result = run_whisper_transcribe(Path(audio_path), word_timestamps=True)
             return result
         except Exception as e:
             log.error(f"Transcription error: {e}")
