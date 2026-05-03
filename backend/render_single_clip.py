@@ -11,12 +11,6 @@ from fastapi import HTTPException
 from reframer import create_reframer
 from subtitle_generator_v2 import create_subtitle_generator
 from services.social_meta import generate_social_metadata
-from services.pipeline_metrics import (
-    elapsed_seconds,
-    log_stage,
-    resolution_string,
-    timer_start,
-)
 from emoji_overlay import extract_emojis_from_metadata, create_multi_emoji_sequence
 
 
@@ -131,9 +125,6 @@ async def render_single_clip_with_progress(
     if end_time_override is not None:
         print(f"  -> end_time override: {clip['end_time']} -> {end_time_override}")
         clip["end_time"] = end_time_override
-    clip_id = f"{file_id}_clip_{clip_index + 1}"
-    clip_duration = clip["end_time"] - clip["start_time"]
-    total_render_started_at = timer_start()
     
     # Get input file
     input_file = UPLOAD_DIR / f"{file_id}.mp4"
@@ -204,20 +195,11 @@ async def render_single_clip_with_progress(
         print(f"  -> Blur background mode (render_mode={render_mode}, mode={_preview_mode})")
     elif reframer:
         try:
-            crop_started_at = timer_start()
             crop_filter = reframer.get_crop_filter(
                 input_file,
                 clip["start_time"],
                 clip["end_time"],
                 crop_preview=crop_preview
-            )
-            log_stage(
-                "face_detection_crop_calculation",
-                elapsed_seconds(crop_started_at),
-                file_id=file_id,
-                clip_id=clip_index + 1,
-                duration=clip_duration,
-                render_mode="face_crop",
             )
         except Exception as e:
             print(f"Reframing failed: {e}")
@@ -236,11 +218,11 @@ async def render_single_clip_with_progress(
         try:
             import time
             timestamp = int(time.time() * 1000)
+            clip_id = f"{file_id}_clip_{clip_index + 1}"
             subtitle_path = OUTPUT_DIR / f"subs_{clip_id}_{timestamp}.ass"
             
             is_split_screen = crop_preview and crop_preview.get("mode") == "split_screen"
             
-            subtitles_started_at = timer_start()
             subtitle_gen.generate_ass_from_transcription(
                 transcription_data,
                 subtitle_path,
@@ -254,14 +236,6 @@ async def render_single_clip_with_progress(
                 crop_preview=crop_preview,
                 subtitle_style=subtitle_style,
                 subtitle_language=subtitle_language,
-            )
-            log_stage(
-                "subtitles_generation",
-                elapsed_seconds(subtitles_started_at),
-                file_id=file_id,
-                clip_id=clip_index + 1,
-                duration=clip_duration,
-                subtitle_path=str(subtitle_path),
             )
         except Exception as e:
             print(f"[FAIL] Subtitle generation failed: {e}")
@@ -289,6 +263,8 @@ async def render_single_clip_with_progress(
                     
                     if primary_face and reframer:
                         # Calculate clip duration
+                        clip_duration = clip["end_time"] - clip["start_time"]
+                        
                         # Get video dimensions
                         video_width = crop_preview.get("video_width", 1920)
                         video_height = crop_preview.get("video_height", 1080)
@@ -344,11 +320,6 @@ async def render_single_clip_with_progress(
     print(f"  -> Platform: {platform}")
     print(f"  -> Style: {subtitle_style}")
     print(f"  -> Mode: {'[!] SATISFYING SPLIT SCREEN' if (is_split_screen_mode and background_video_path) else '[!] SPLIT SCREEN' if is_split_screen_mode else '📦 LETTERBOX+BLUR' if letterbox_with_blur else 'STANDARD'}")
-    effective_render_mode = "full_frame" if letterbox_with_blur else "face_crop"
-    source_resolution = resolution_string(
-        video_info.get("width") if video_info else None,
-        video_info.get("height") if video_info else None,
-    )
 
     # Render with progress tracking
     await cut_video_segment_enhanced_func(
@@ -368,23 +339,9 @@ async def render_single_clip_with_progress(
         sfx_path=sfx_path,
         jump_cut_segments=jump_cut_segments,
         emoji_sequence=emoji_sequence,
-        clip_id=clip_index + 1,
-        render_mode=effective_render_mode,
-        source_resolution=source_resolution,
-        target_resolution="1080x1920",
     )
 
     print(f"[OK] Clip {clip_index + 1} rendered successfully: {clip_filename}")
-    log_stage(
-        "total_clip_render",
-        elapsed_seconds(total_render_started_at),
-        file_id=file_id,
-        clip_id=clip_index + 1,
-        duration=clip_duration,
-        source_resolution=source_resolution,
-        target_resolution="1080x1920",
-        render_mode=effective_render_mode,
-    )
 
     # Cleanup reframer
     if reframer:

@@ -119,8 +119,7 @@ for idx, clip in enumerate(clips, 1):
     # Add subtitle filter if available
     if subtitle_filter:
         cmd.extend(['-vf', subtitle_filter])
-        cmd.extend(['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-threads', '0'])
-        cmd.extend(['-movflags', '+faststart'])
+        cmd.extend(['-c:v', 'libx264', '-preset', 'fast', '-crf', '23'])
     else:
         cmd.extend(['-c', 'copy'])
     

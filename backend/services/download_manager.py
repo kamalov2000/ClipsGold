@@ -25,7 +25,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import logging
-from services.pipeline_metrics import command_to_string, elapsed_seconds, file_size_mb, log_stage, timer_start
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -198,33 +197,16 @@ class UniversalDownloader:
     async def _ytdlp_audio(self, url: str, out: Path) -> Path:
         cmd = self._build_ytdlp_cmd(url, audio_only=True, output=out)
         log.info(f"[yt-dlp audio] {url}")
-        started_at = timer_start()
         await _run_async(cmd, timeout=120)
         # yt-dlp may rename file (adds extension)
         actual = _find_output_file(out)
-        log_stage(
-            "audio_extraction",
-            elapsed_seconds(started_at),
-            file_id=out.stem.replace("_audio", ""),
-            downloader="yt-dlp",
-            command=command_to_string(cmd),
-            output_size_mb=file_size_mb(actual),
-        )
         log.info(f"[yt-dlp audio] Saved: {actual}")
         return actual
 
     async def _ffmpeg_extract_audio(self, video: Path, out: Path) -> Path:
         cmd = ["ffmpeg", "-y", "-i", str(video), "-vn",
                "-c:a", "aac", "-b:a", TARGET_BITRATE_AUDIO, str(out)]
-        started_at = timer_start()
         await _run_async(cmd, timeout=120)
-        log_stage(
-            "audio_extraction",
-            elapsed_seconds(started_at),
-            file_id=out.stem.replace("_audio", ""),
-            command=command_to_string(cmd),
-            output_size_mb=file_size_mb(out),
-        )
         return out
 
     # ── Internal: video download ──────────────────────────────
@@ -249,17 +231,8 @@ class UniversalDownloader:
     async def _ytdlp_video(self, url: str, out: Path) -> Path:
         cmd = self._build_ytdlp_cmd(url, audio_only=False, output=out)
         log.info(f"[yt-dlp video] {url}")
-        started_at = timer_start()
         await _run_async(cmd, timeout=600)
         actual = _find_output_file(out)
-        log_stage(
-            "download",
-            elapsed_seconds(started_at),
-            file_id=out.stem.replace("_video", ""),
-            downloader="yt-dlp",
-            command=command_to_string(cmd),
-            output_size_mb=file_size_mb(actual),
-        )
         log.info(f"[yt-dlp video] Saved: {actual} ({actual.stat().st_size / 1024 / 1024:.1f} MB)")
         return actual
 
@@ -284,16 +257,7 @@ class UniversalDownloader:
             cmd += [f"--all-proxy={proxy}"]
         cmd.append(url)
         log.info(f"[aria2c] Downloading: {url}")
-        started_at = timer_start()
         await _run_async(cmd, timeout=600)
-        log_stage(
-            "download",
-            elapsed_seconds(started_at),
-            file_id=out.stem.replace("_video", ""),
-            downloader="aria2c",
-            command=command_to_string(cmd),
-            output_size_mb=file_size_mb(out),
-        )
         return out
 
     async def _requests_download(self, url: str, out: Path) -> Path:
@@ -302,20 +266,12 @@ class UniversalDownloader:
         headers = {"User-Agent": _random_ua()}
         proxies = {"http://": proxy, "https://": proxy} if proxy else None
         log.info(f"[requests] Downloading: {url}")
-        started_at = timer_start()
         async with httpx.AsyncClient(headers=headers, proxies=proxies, timeout=600, follow_redirects=True) as client:
             async with client.stream("GET", url) as response:
                 response.raise_for_status()
                 with open(out, "wb") as f:
                     async for chunk in response.aiter_bytes(chunk_size=1024 * 1024):
                         f.write(chunk)
-        log_stage(
-            "download",
-            elapsed_seconds(started_at),
-            file_id=out.stem.replace("_video", ""),
-            downloader="requests",
-            output_size_mb=file_size_mb(out),
-        )
         log.info(f"[requests] Saved: {out} ({out.stat().st_size / 1024 / 1024:.1f} MB)")
         return out
 
