@@ -204,26 +204,56 @@ app.include_router(auth_router)
 app.include_router(factory_router)
 
 
+def _cleanup_dir(directory: Path, max_age_seconds: int) -> int:
+    """Delete files older than max_age_seconds from directory. Returns count deleted."""
+    if not directory.exists():
+        return 0
+    cutoff = time.time() - max_age_seconds
+    deleted = 0
+    for fp in directory.iterdir():
+        if fp.is_file() and fp.stat().st_mtime < cutoff:
+            try:
+                fp.unlink()
+                deleted += 1
+            except Exception as e:
+                print(f"[WARN] Auto-cleanup: could not delete {fp}: {e}")
+    return deleted
+
+
 async def _auto_cleanup_worker():
-    """Delete files older than 24 hours from uploads/, outputs/, and temp/ every 60 minutes."""
-    import time as _time
+    """Periodic cleanup of temporary files to keep disk usage under control."""
+    DOWNLOADS_DIR = Path(os.getenv("DOWNLOADS_DIR", "downloads"))
+    _last_docker_prune: float = 0.0
+
     while True:
-        await asyncio.sleep(3600)  # wait 60 minutes between runs
-        cutoff = _time.time() - 86400  # 24 hours ago
-        cleaned = 0
-        dirs_to_scan = [UPLOAD_DIR, OUTPUT_DIR, CLIPS_DIR / "temp"]
-        for directory in dirs_to_scan:
-            if not directory.exists():
-                continue
-            for file_path in directory.iterdir():
-                if file_path.is_file() and file_path.stat().st_mtime < cutoff:
-                    try:
-                        file_path.unlink()
-                        cleaned += 1
-                    except Exception as e:
-                        print(f"[WARN] Auto-cleanup: could not delete {file_path}: {e}")
-        if cleaned:
-            print(f"🧹 Auto-cleanup: deleted {cleaned} file(s) older than 24h")
+        await asyncio.sleep(3600)  # run every hour
+
+        total = 0
+        # uploads: remove after 2 hours (video already processed)
+        total += _cleanup_dir(UPLOAD_DIR,     max_age_seconds=2 * 3600)
+        # downloads cache: remove after 24 hours
+        total += _cleanup_dir(DOWNLOADS_DIR,  max_age_seconds=24 * 3600)
+        # rendered clips: remove after 24 hours
+        total += _cleanup_dir(CLIPS_DIR,      max_age_seconds=24 * 3600)
+        # outputs (subtitles, analysis JSON): remove after 24 hours
+        total += _cleanup_dir(OUTPUT_DIR,     max_age_seconds=24 * 3600)
+
+        if total:
+            print(f"[cleanup] Deleted {total} file(s)")
+
+        # Weekly Docker image/build-cache prune (requires Docker socket to be mounted)
+        now = time.time()
+        if now - _last_docker_prune > 7 * 24 * 3600:
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "docker", "system", "prune", "-f",
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+                _, _ = await proc.communicate()
+                _last_docker_prune = now
+                print("[cleanup] Docker system prune completed")
+            except Exception as e:
+                print(f"[cleanup] Docker prune skipped: {e}")
 
 
 def _restore_transcription_store() -> None:
@@ -1286,6 +1316,42 @@ async def root():
     return {
         "message": "Video Processing API",
         "ffmpeg_available": check_ffmpeg(),
+    }
+
+
+@app.get("/admin/disk-usage")
+async def disk_usage_endpoint(current_user: User = Depends(get_current_user)):
+    """Returns disk usage breakdown for all storage directories."""
+    import shutil as _shutil
+
+    DOWNLOADS_DIR = Path(os.getenv("DOWNLOADS_DIR", "downloads"))
+
+    def _dir_size_mb(p: Path) -> float:
+        if not p.exists():
+            return 0.0
+        total = sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
+        return round(total / 1024 / 1024, 1)
+
+    def _dir_count(p: Path) -> int:
+        if not p.exists():
+            return 0
+        return sum(1 for f in p.iterdir() if f.is_file())
+
+    disk = _shutil.disk_usage("/")
+    return {
+        "disk": {
+            "total_gb": round(disk.total / 1024**3, 1),
+            "used_gb":  round(disk.used  / 1024**3, 1),
+            "free_gb":  round(disk.free  / 1024**3, 1),
+            "used_pct": round(disk.used  / disk.total * 100, 1),
+        },
+        "dirs": {
+            "uploads":   { "size_mb": _dir_size_mb(UPLOAD_DIR),    "files": _dir_count(UPLOAD_DIR) },
+            "downloads": { "size_mb": _dir_size_mb(DOWNLOADS_DIR), "files": _dir_count(DOWNLOADS_DIR) },
+            "clips":     { "size_mb": _dir_size_mb(CLIPS_DIR),     "files": _dir_count(CLIPS_DIR) },
+            "outputs":   { "size_mb": _dir_size_mb(OUTPUT_DIR),    "files": _dir_count(OUTPUT_DIR) },
+            "thumbnails":{ "size_mb": _dir_size_mb(THUMBNAILS_DIR),"files": _dir_count(THUMBNAILS_DIR) },
+        },
     }
 
 

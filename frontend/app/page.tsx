@@ -89,7 +89,6 @@ export default function LandingPage() {
           <div className="cg-nav-links">
             <a className="cg-nav-link" href="#how">How it works</a>
             <a className="cg-nav-link" href="#features">Features</a>
-            <a className="cg-nav-link" href="#pricing">Pricing</a>
           </div>
           <div className="cg-nav-actions">
             <Link href="/process" className="btn btn-ghost btn-sm">Sign in</Link>
@@ -182,8 +181,8 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* STATS BAND */}
-      <div className="stats-band">
+      {/* STATS BAND — hidden until real data available */}
+      <div className="stats-band" style={{ display: 'none' }}>
         <div className="stat-cell">
           <div className="stat-val display">500K+</div>
           <div className="stat-lbl">Clips generated</div>
@@ -246,8 +245,8 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* CLIP SHOWCASE */}
-      <section className="showcase-section">
+      {/* CLIP SHOWCASE — hidden (placeholder cards) */}
+      <section className="showcase-section" style={{ display: 'none' }}>
         <div className="cg-container" style={{ marginBottom: 32 }}>
           <div className="section-eyebrow" style={{ textAlign: 'center' }}>Example outputs</div>
         </div>
@@ -325,8 +324,8 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* TESTIMONIALS */}
-      <section className="section" style={{ paddingBottom: 0 }}>
+      {/* TESTIMONIALS — hidden (placeholder reviews) */}
+      <section className="section" style={{ paddingBottom: 0, display: 'none' }}>
         <div className="cg-container">
           <div className="section-head">
             <div className="section-eyebrow">What creators say</div>
@@ -354,8 +353,8 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* PRICING */}
-      <section className="pricing-section" id="pricing">
+      {/* PRICING — hidden */}
+      <section className="pricing-section" id="pricing" style={{ display: 'none' }}>
         <div className="cg-container">
           <div className="section-head">
             <div className="section-eyebrow">Pricing</div>

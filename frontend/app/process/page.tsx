@@ -3,7 +3,15 @@
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { api, API_BASE, WS_BASE, getToken, saveToken } from '@/lib/api'
+import { api, API_BASE, getToken, saveToken, clearToken } from '@/lib/api'
+
+/* ─── helpers ─── */
+function formatDur(secs: number) {
+  if (!secs || isNaN(secs)) return '0:00'
+  const m = Math.floor(secs / 60)
+  const s = Math.round(secs % 60)
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
 
 /* ─── types ─── */
 type View = 'upload' | 'processing' | 'results'
@@ -14,16 +22,18 @@ interface Clip {
   score: number
   dur: string
   tags: string[]
-  start?: number
-  end?: number
-  file_id?: string
+  start_time: number
+  end_time: number
+  file_id: string
+  reason?: string
+  hook?: string
+  rendered?: boolean
 }
 
 interface InputInfo {
   type: 'url' | 'file'
   url?: string
   name?: string
-  fileId?: string
 }
 
 /* ─── icon ─── */
@@ -54,7 +64,7 @@ const navS: React.CSSProperties = {
   flexShrink: 0,
 }
 
-function Nav({ onBack, username }: { onBack?: () => void; username?: string }) {
+function Nav({ onBack, userEmail, onLogout }: { onBack?: () => void; userEmail?: string; onLogout?: () => void }) {
   return (
     <div style={navS}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
@@ -68,10 +78,15 @@ function Nav({ onBack, username }: { onBack?: () => void; username?: string }) {
         </Link>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        {username ? (
-          <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'oklch(0.38 0.06 240)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600, color: '#fff' }}>
-            {username[0].toUpperCase()}
-          </div>
+        {userEmail ? (
+          <>
+            <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'oklch(0.38 0.06 240)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600, color: '#fff' }}>
+              {userEmail[0].toUpperCase()}
+            </div>
+            <button onClick={onLogout} style={{ background: 'none', border: 'none', color: 'var(--lo)', cursor: 'pointer', fontSize: 12 }}>
+              Sign out
+            </button>
+          </>
         ) : (
           <span style={{ fontSize: 12, color: 'var(--lo)' }}>Not signed in</span>
         )}
@@ -81,21 +96,27 @@ function Nav({ onBack, username }: { onBack?: () => void; username?: string }) {
 }
 
 /* ─── auth overlay ─── */
-function AuthOverlay({ onAuth }: { onAuth: (user: string) => void }) {
+function AuthOverlay({ onAuth }: { onAuth: (email: string) => void }) {
   const [mode, setMode] = useState<'login' | 'register'>('login')
-  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
 
   const submit = async () => {
-    setLoading(true); setError('')
+    setLoading(true); setError(''); setSuccess('')
     try {
-      const endpoint = mode === 'login' ? '/auth/simple-login' : '/auth/register'
-      const res = await api.post(endpoint, { username, password })
-      const token = res.data.access_token
-      if (token) { saveToken(token); onAuth(username) }
-      else setError('Login failed')
+      if (mode === 'login') {
+        const res = await api.post('/auth/json-login', { email, password })
+        const token = res.data.access_token
+        if (token) { saveToken(token); onAuth(email) }
+        else setError('Login failed')
+      } else {
+        await api.post('/auth/register', { email, password })
+        setSuccess('Account created! Sign in to continue.')
+        setMode('login')
+      }
     } catch (e: any) {
       setError(e?.response?.data?.detail || 'Authentication failed')
     } finally { setLoading(false) }
@@ -114,27 +135,31 @@ function AuthOverlay({ onAuth }: { onAuth: (user: string) => void }) {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <input value={username} onChange={e => setUsername(e.target.value)}
-            placeholder="Username"
+          <input
+            value={email} onChange={e => setEmail(e.target.value)}
+            type="email" placeholder="Email address"
             style={{ background: 'oklch(0.14 0.01 62)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 14px', fontSize: 14, color: 'var(--hi)', fontFamily: "'DM Sans',sans-serif", outline: 'none' }}
           />
-          <input value={password} onChange={e => setPassword(e.target.value)} type="password"
-            placeholder="Password"
+          <input
+            value={password} onChange={e => setPassword(e.target.value)}
+            type="password" placeholder="Password"
             onKeyDown={e => e.key === 'Enter' && submit()}
             style={{ background: 'oklch(0.14 0.01 62)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 14px', fontSize: 14, color: 'var(--hi)', fontFamily: "'DM Sans',sans-serif", outline: 'none' }}
           />
           {error && <div style={{ fontSize: 12, color: 'oklch(0.65 0.14 25)', textAlign: 'center' }}>{error}</div>}
-          <button onClick={submit} disabled={loading || !username || !password}
-            style={{ padding: '13px', borderRadius: 8, border: 'none', cursor: username && password && !loading ? 'pointer' : 'not-allowed', background: username && password ? 'var(--gold)' : 'oklch(0.20 0.01 62)', color: username && password ? 'oklch(0.11 0.01 62)' : 'var(--lo)', fontFamily: "'DM Sans',sans-serif", fontWeight: 600, fontSize: 15, transition: 'all 0.2s' }}>
+          {success && <div style={{ fontSize: 12, color: 'oklch(0.65 0.14 130)', textAlign: 'center' }}>{success}</div>}
+          <button
+            onClick={submit} disabled={loading || !email || !password}
+            style={{ padding: '13px', borderRadius: 8, border: 'none', cursor: email && password && !loading ? 'pointer' : 'not-allowed', background: email && password ? 'var(--gold)' : 'oklch(0.20 0.01 62)', color: email && password ? 'oklch(0.11 0.01 62)' : 'var(--lo)', fontFamily: "'DM Sans',sans-serif", fontWeight: 600, fontSize: 15, transition: 'all 0.2s' }}>
             {loading ? 'Loading…' : mode === 'login' ? 'Sign in' : 'Create account'}
           </button>
         </div>
 
         <div style={{ textAlign: 'center', marginTop: 20, fontSize: 12, color: 'var(--lo)' }}>
           {mode === 'login' ? (
-            <>No account? <button onClick={() => setMode('register')} style={{ background: 'none', border: 'none', color: 'var(--gold)', cursor: 'pointer', fontSize: 12 }}>Register →</button></>
+            <>No account? <button onClick={() => { setMode('register'); setError(''); setSuccess('') }} style={{ background: 'none', border: 'none', color: 'var(--gold)', cursor: 'pointer', fontSize: 12 }}>Register →</button></>
           ) : (
-            <>Have an account? <button onClick={() => setMode('login')} style={{ background: 'none', border: 'none', color: 'var(--gold)', cursor: 'pointer', fontSize: 12 }}>Sign in →</button></>
+            <>Have an account? <button onClick={() => { setMode('login'); setError(''); setSuccess('') }} style={{ background: 'none', border: 'none', color: 'var(--gold)', cursor: 'pointer', fontSize: 12 }}>Sign in →</button></>
           )}
         </div>
       </div>
@@ -157,8 +182,6 @@ function UploadState({ onSubmit, initialUrl }: { onSubmit: (inp: InputInfo) => v
   const [tab, setTab] = useState<'url' | 'file'>('url')
   const [url, setUrl] = useState(initialUrl || '')
   const [dragging, setDragging] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -172,10 +195,10 @@ function UploadState({ onSubmit, initialUrl }: { onSubmit: (inp: InputInfo) => v
     if (f) onSubmit({ type: 'file', name: f.name })
   }
 
-  const handleUrlSubmit = async () => {
-    if (!url) return
-    setLoading(true); setError('')
-    onSubmit({ type: 'url', url })
+  const handleUrlSubmit = () => {
+    const trimmed = url.trim()
+    if (!trimmed) return
+    onSubmit({ type: 'url', url: trimmed })
   }
 
   return (
@@ -190,7 +213,6 @@ function UploadState({ onSubmit, initialUrl }: { onSubmit: (inp: InputInfo) => v
         </div>
 
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 14, overflow: 'hidden' }}>
-          {/* Tabs */}
           <div style={{ display: 'flex', borderBottom: '1px solid var(--border)' }}>
             {([{ id: 'url', label: 'YouTube URL' }, { id: 'file', label: 'Upload file' }] as const).map(t => (
               <button key={t.id} onClick={() => setTab(t.id)} style={{
@@ -214,8 +236,7 @@ function UploadState({ onSubmit, initialUrl }: { onSubmit: (inp: InputInfo) => v
                   display: 'flex', alignItems: 'center',
                   background: 'oklch(0.14 0.01 62)',
                   border: '1.5px solid var(--gold-line)',
-                  borderRadius: 10, overflow: 'hidden',
-                  marginBottom: 16,
+                  borderRadius: 10, overflow: 'hidden', marginBottom: 16,
                   boxShadow: '0 0 0 4px oklch(0.76 0.148 80 / 0.05)',
                 }}>
                   <div style={{ padding: '0 16px', color: 'var(--lo)', display: 'flex', alignItems: 'center', flexShrink: 0 }}><YTIcon /></div>
@@ -227,37 +248,17 @@ function UploadState({ onSubmit, initialUrl }: { onSubmit: (inp: InputInfo) => v
                   />
                   {url && <button onClick={() => setUrl('')} style={{ padding: '0 14px', background: 'none', border: 'none', color: 'var(--lo)', cursor: 'pointer', fontSize: 18 }}>×</button>}
                 </div>
-
-                <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
-                  {[
-                    { label: 'Max clips', val: '8' },
-                    { label: 'Min length', val: '30s' },
-                    { label: 'Max length', val: '90s' },
-                    { label: 'Language', val: 'Auto' },
-                  ].map(o => (
-                    <div key={o.label} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', background: 'oklch(0.14 0.01 62)', border: '1px solid var(--border)', borderRadius: 7, cursor: 'pointer' }}>
-                      <span style={{ fontSize: 11, color: 'var(--lo)' }}>{o.label}:</span>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--mid)' }}>{o.val}</span>
-                      <Icon d="M6 9l6 6 6-6" size={10} stroke="var(--lo)" />
-                    </div>
-                  ))}
-                </div>
-
-                {error && <div style={{ fontSize: 12, color: 'oklch(0.65 0.14 25)', marginBottom: 12, textAlign: 'center' }}>{error}</div>}
-
                 <button
-                  onClick={handleUrlSubmit}
-                  disabled={!url || loading}
+                  onClick={handleUrlSubmit} disabled={!url.trim()}
                   style={{
                     width: '100%', padding: 14, borderRadius: 8, border: 'none',
-                    cursor: url && !loading ? 'pointer' : 'not-allowed',
-                    background: url ? 'var(--gold)' : 'oklch(0.20 0.01 62)',
-                    color: url ? 'oklch(0.11 0.01 62)' : 'var(--lo)',
-                    fontFamily: "'DM Sans',sans-serif", fontWeight: 600, fontSize: 15,
-                    transition: 'all 0.2s',
+                    cursor: url.trim() ? 'pointer' : 'not-allowed',
+                    background: url.trim() ? 'var(--gold)' : 'oklch(0.20 0.01 62)',
+                    color: url.trim() ? 'oklch(0.11 0.01 62)' : 'var(--lo)',
+                    fontFamily: "'DM Sans',sans-serif", fontWeight: 600, fontSize: 15, transition: 'all 0.2s',
                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                   }}>
-                  {loading ? 'Submitting…' : 'Extract clips →'}
+                  Extract clips →
                 </button>
               </div>
             ) : (
@@ -269,8 +270,7 @@ function UploadState({ onSubmit, initialUrl }: { onSubmit: (inp: InputInfo) => v
                 style={{
                   border: `2px dashed ${dragging ? 'var(--gold)' : 'var(--border)'}`,
                   borderRadius: 10, padding: '56px 32px', textAlign: 'center', cursor: 'pointer',
-                  background: dragging ? 'var(--gold-dim12)' : 'oklch(0.14 0.01 62)',
-                  transition: 'all 0.15s',
+                  background: dragging ? 'var(--gold-dim12)' : 'oklch(0.14 0.01 62)', transition: 'all 0.15s',
                 }}>
                 <input ref={fileRef} type="file" accept="video/*" style={{ display: 'none' }} onChange={handleFileChange} />
                 <div style={{ width: 52, height: 52, borderRadius: 12, background: 'var(--gold-dim12)', border: '1px solid var(--gold-line)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 18px', color: 'var(--gold)' }}>
@@ -283,102 +283,157 @@ function UploadState({ onSubmit, initialUrl }: { onSubmit: (inp: InputInfo) => v
             )}
           </div>
         </div>
-
-        {/* Recent */}
-        <div style={{ marginTop: 24 }}>
-          <div style={{ fontSize: 11, color: 'var(--lo)', letterSpacing: '0.10em', textTransform: 'uppercase', marginBottom: 12 }}>Recent</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {[
-              { name: 'How to build a SaaS in 30 days', dur: '1h 24m', clips: 7, ago: '2h ago' },
-              { name: 'Lex Fridman — Sam Altman interview', dur: '3h 12m', clips: 12, ago: 'Yesterday' },
-            ].map((r, i) => (
-              <div key={i}
-                style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '11px 14px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer' }}
-                onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--gold-line)')}
-                onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border)')}>
-                <div style={{ width: 36, height: 36, borderRadius: 8, background: 'oklch(0.20 0.01 62)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <YTIcon />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--hi)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</div>
-                  <div style={{ fontSize: 11, color: 'var(--lo)', marginTop: 2 }}>{r.dur} · {r.clips} clips extracted</div>
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--lo)', flexShrink: 0 }}>{r.ago}</div>
-                <Icon d="M9 18l6-6-6-6" size={14} stroke="var(--lo)" />
-              </div>
-            ))}
-          </div>
-        </div>
       </div>
     </div>
   )
 }
 
 /* ══════════════════════════════
-   STATE 2 — PROCESSING
+   STATE 2 — PROCESSING (real API)
 ══════════════════════════════ */
 const STEPS = [
-  { id: 'fetch',   label: 'Fetching video',        sub: 'Downloading from YouTube…' },
-  { id: 'whisper', label: 'Transcribing audio',     sub: 'Whisper speech recognition…' },
-  { id: 'claude',  label: 'Analysing moments',      sub: 'Claude scoring each segment…' },
-  { id: 'reframe', label: 'Reframing to portrait',  sub: 'Smart crop 16:9 → 9:16…' },
-  { id: 'subs',    label: 'Generating captions',    sub: 'Animated word-level subtitles…' },
-  { id: 'render',  label: 'Rendering clips',        sub: 'FFmpeg encoding final videos…' },
-]
-
-const PROCESS_LOGS = [
-  ['Initialised worker', 'Fetching video stream…', 'Connected to yt-dlp'],
-  ['Audio stream extracted', 'Loading Whisper model…', 'Transcribing audio'],
-  ['Transcript ready', 'Sending to Claude…', 'Scoring segments'],
-  ['84 candidate segments found', 'Selecting top 8…', 'Applying smart reframe'],
-  ['Reframe complete', 'Generating subtitle timing…', 'Syncing captions'],
-  ['Rendering clip 1/8…', 'Rendering clip 4/8…', 'Rendering clip 8/8…', 'Finalising…'],
+  { id: 'fetch',   label: 'Fetching video',    sub: 'Downloading from YouTube…' },
+  { id: 'whisper', label: 'Transcribing audio', sub: 'Whisper speech recognition…' },
+  { id: 'claude',  label: 'Analysing moments',  sub: 'Claude scoring each segment…' },
 ]
 
 function ProcessingState({ input, onDone }: { input: InputInfo | null; onDone: (clips: Clip[]) => void }) {
   const [step, setStep] = useState(0)
+  const [stepsDone, setStepsDone] = useState([false, false, false])
   const [pct, setPct] = useState(0)
-  const [log, setLog] = useState(['Starting job…'])
+  const [log, setLog] = useState<string[]>(['Starting job…'])
+  const [error, setError] = useState('')
+  const [videoDuration, setVideoDuration] = useState(0)
+
+  const addLog = useCallback((msg: string) => {
+    setLog(prev => [...prev.slice(-14), msg])
+  }, [])
 
   useEffect(() => {
-    let s = 0, p = 0
-    const iv = setInterval(() => {
-      p += Math.random() * 3 + 1
-      if (p >= (s + 1) / STEPS.length * 100 && s < STEPS.length - 1) {
-        s++; setStep(s)
-        setLog(prev => [...prev.slice(-8), ...PROCESS_LOGS[s]])
+    if (!input) return
+
+    if (input.type === 'file') {
+      setError('File upload pipeline is not yet connected. Please use a YouTube URL.')
+      return
+    }
+    if (!input.url) { setError('No URL provided'); return }
+
+    let cancelled = false
+
+    const run = async () => {
+      try {
+        // ── Step 1: Download ─────────────────────────────────────────────
+        setStep(0); setPct(5)
+        addLog('Connecting to YouTube…')
+
+        const dlRes = await api.post('/download-youtube', { url: input.url })
+        if (cancelled) return
+
+        const fileId: string = dlRes.data.file_id
+        const title: string = dlRes.data.title || 'Video'
+        const duration: number = dlRes.data.duration || 0
+        const sizeMb = Math.round((dlRes.data.size || 0) / 1024 / 1024)
+
+        setVideoDuration(duration)
+        addLog(`Downloaded: "${title.slice(0, 55)}"`)
+        addLog(`Duration: ${formatDur(duration)} · ${sizeMb} MB`)
+        setPct(25)
+        setStepsDone(prev => { const n = [...prev]; n[0] = true; return n })
+
+        // ── Step 2: Transcribe ───────────────────────────────────────────
+        setStep(1)
+        addLog('Starting Whisper transcription…')
+
+        await api.post(`/transcribe/${fileId}`)
+        if (cancelled) return
+        addLog('Transcription job queued…')
+
+        while (true) {
+          if (cancelled) return
+          await new Promise(r => setTimeout(r, 3500))
+
+          const sRes = await api.get(`/transcribe/${fileId}/status`)
+          if (cancelled) return
+          const s = sRes.data
+
+          if (s.status === 'done') { addLog('Transcription complete ✓'); break }
+          if (s.status === 'failed') throw new Error(s.error || 'Transcription failed')
+          if (s.status === 'processing' && s.total_chunks > 0) {
+            const p = Math.round((s.progress / s.total_chunks) * 100)
+            addLog(`Transcribing… ${p}%`)
+            setPct(25 + Math.round(p * 0.35))
+          }
+        }
+
+        setPct(62)
+        setStepsDone(prev => { const n = [...prev]; n[1] = true; return n })
+
+        // ── Step 3: Analyze with Claude ──────────────────────────────────
+        setStep(2)
+        addLog('Sending transcript to Claude…')
+
+        const analyzeRes = await api.post(`/analyze/${fileId}?max_clips=6`)
+        if (cancelled) return
+
+        const rawClips: any[] = analyzeRes.data.viral_clips || []
+        addLog(`Claude found ${rawClips.length} viral moments`)
+        setPct(100)
+        setStepsDone(prev => { const n = [...prev]; n[2] = true; return n })
+
+        await new Promise(r => setTimeout(r, 500))
+
+        const clips: Clip[] = rawClips.map((c, i) => {
+          const raw = c.virality_score ?? 0.5
+          const score = raw <= 1 ? Math.round(raw * 100) : Math.round(raw)
+          return {
+            id: i + 1,
+            label: c.title || `Clip ${i + 1}`,
+            score,
+            dur: formatDur((c.end_time || 0) - (c.start_time || 0)),
+            tags: c.tags || [],
+            start_time: c.start_time || 0,
+            end_time: c.end_time || 0,
+            file_id: fileId,
+            reason: c.reason,
+            hook: c.hook,
+            rendered: false,
+          }
+        })
+
+        onDone(clips)
+      } catch (e: any) {
+        if (!cancelled) {
+          const msg = e?.response?.data?.detail || e?.message || 'Processing failed'
+          setError(typeof msg === 'string' ? msg.slice(0, 400) : 'Processing failed')
+        }
       }
-      if (p >= 100) {
-        clearInterval(iv); setPct(100)
-        setTimeout(() => {
-          onDone([
-            { id: 1, label: 'The hook',        score: 97, dur: '1:12', tags: ['Hook', 'High energy'] },
-            { id: 2, label: 'Key insight',     score: 91, dur: '0:52', tags: ['Educational', 'Quotable'] },
-            { id: 3, label: 'Emotional peak',  score: 89, dur: '1:28', tags: ['Emotional', 'Story'] },
-            { id: 4, label: 'Surprising stat', score: 86, dur: '0:44', tags: ['Fact', 'Shareable'] },
-            { id: 5, label: 'Funny moment',    score: 83, dur: '0:38', tags: ['Comedy', 'Relatable'] },
-            { id: 6, label: 'Strong advice',   score: 80, dur: '1:05', tags: ['Value', 'CTA'] },
-            { id: 7, label: 'Bold opinion',    score: 76, dur: '0:59', tags: ['Opinion', 'Debate'] },
-            { id: 8, label: 'Best quote',      score: 71, dur: '0:47', tags: ['Quote', 'Inspirational'] },
-          ])
-        }, 600)
-        return
-      }
-      setPct(p)
-      if (Math.random() > 0.6) {
-        const l = PROCESS_LOGS[s][Math.floor(Math.random() * PROCESS_LOGS[s].length)]
-        setLog(prev => [...prev.slice(-8), l])
-      }
-    }, 180)
-    return () => clearInterval(iv)
-  }, [onDone])
+    }
+
+    run()
+    return () => { cancelled = true }
+  }, [input, onDone, addLog])
 
   const pctFmt = Math.round(pct)
+
+  if (error) {
+    return (
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40 }}>
+        <div style={{ maxWidth: 500, textAlign: 'center' }}>
+          <div style={{ fontSize: 32, marginBottom: 16 }}>⚠️</div>
+          <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 18, fontWeight: 600, color: 'var(--hi)', marginBottom: 12 }}>Processing failed</div>
+          <div style={{ fontSize: 13, color: 'var(--lo)', lineHeight: 1.7, marginBottom: 24, whiteSpace: 'pre-wrap', wordBreak: 'break-word', textAlign: 'left', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, padding: 16 }}>{error}</div>
+          <button onClick={() => window.location.reload()} style={{ padding: '10px 24px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--mid)', cursor: 'pointer', fontFamily: "'DM Sans',sans-serif", fontSize: 14 }}>
+            Try again
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '340px 1fr', overflow: 'hidden' }}>
       {/* Left panel — steps */}
-      <div style={{ borderRight: '1px solid var(--border)', padding: '40px 32px', display: 'flex', flexDirection: 'column', gap: 0, overflow: 'auto' }}>
+      <div style={{ borderRight: '1px solid var(--border)', padding: '40px 32px', display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
         <div style={{ marginBottom: 32 }}>
           <div style={{ fontSize: 12, color: 'var(--lo)', marginBottom: 6 }}>Processing</div>
           <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 17, fontWeight: 600, color: 'var(--hi)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -387,7 +442,6 @@ function ProcessingState({ input, onDone }: { input: InputInfo | null; onDone: (
           {input?.url && <div style={{ fontSize: 11, color: 'var(--lo)', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{input.url}</div>}
         </div>
 
-        {/* Progress ring */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 36 }}>
           <svg width={64} height={64} viewBox="0 0 64 64">
             <circle cx="32" cy="32" r="26" fill="none" stroke="var(--border)" strokeWidth="4" />
@@ -405,10 +459,9 @@ function ProcessingState({ input, onDone }: { input: InputInfo | null; onDone: (
           </div>
         </div>
 
-        {/* Step list */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
           {STEPS.map((st, i) => {
-            const done = i < step; const active = i === step
+            const done = stepsDone[i]; const active = i === step && !done
             return (
               <div key={st.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, paddingBottom: i < STEPS.length - 1 ? 20 : 0, position: 'relative' }}>
                 {i < STEPS.length - 1 && (
@@ -443,7 +496,6 @@ function ProcessingState({ input, onDone }: { input: InputInfo | null; onDone: (
         <div style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--gold)', animation: 'pulse 1.2s infinite' }} />
           <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--mid)' }}>Live log</span>
-          <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--lo)' }}>Job ID: cg_{Math.random().toString(36).slice(2, 9)}</span>
         </div>
         <div style={{
           flex: 1, background: 'oklch(0.09 0.008 62)', borderRadius: 10,
@@ -465,13 +517,13 @@ function ProcessingState({ input, onDone }: { input: InputInfo | null; onDone: (
 
         <div style={{ marginTop: 20, display: 'flex', gap: 16 }}>
           {[
-            { label: 'Estimated time', val: pct < 100 ? `~${Math.round((100 - pct) / 8)} min` : 'Done!' },
-            { label: 'Video duration', val: '1h 24m' },
-            { label: 'Target clips', val: '8' },
+            { label: 'Step', val: STEPS[step].label },
+            { label: 'Video length', val: videoDuration ? formatDur(videoDuration) : '—' },
+            { label: 'Progress', val: `${stepsDone.filter(Boolean).length} / ${STEPS.length} steps` },
           ].map(s => (
             <div key={s.label} style={{ flex: 1, padding: '14px 16px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8 }}>
               <div style={{ fontSize: 10, color: 'var(--lo)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>{s.label}</div>
-              <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 16, fontWeight: 600, color: s.label === 'Estimated time' && pct >= 100 ? 'var(--gold)' : 'var(--hi)' }}>{s.val}</div>
+              <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 14, fontWeight: 600, color: 'var(--hi)' }}>{s.val}</div>
             </div>
           ))}
         </div>
@@ -522,7 +574,6 @@ function ClipCard({ clip, selected, active, onSelect, onPlay }: {
         {clip.score >= 90 && (
           <div style={{ position: 'absolute', top: 8, left: 8, ...chip, fontSize: 9 }}>✦ Top pick</div>
         )}
-        {/* Checkbox */}
         <div onClick={e => { e.stopPropagation(); onSelect(clip.id) }}
           style={{
             position: 'absolute', top: 8, right: 8, zIndex: 2,
@@ -555,26 +606,53 @@ function ClipCard({ clip, selected, active, onSelect, onPlay }: {
 }
 
 function ResultsState({ clips, onNew }: { clips: Clip[]; onNew: () => void }) {
-  const [selected, setSelected] = useState(new Set([1, 2, 3]))
+  const [clipsData, setClipsData] = useState<Clip[]>(clips)
+  const [selected, setSelected] = useState(new Set(clips.slice(0, 3).map(c => c.id)))
   const [sort, setSort] = useState<'score' | 'recent'>('score')
   const [activeClip, setActiveClip] = useState<Clip>(clips[0])
+  const [rendering, setRendering] = useState(new Set<number>())
+  const [renderError, setRenderError] = useState('')
 
-  const sorted = [...clips].sort((a, b) => sort === 'score' ? b.score - a.score : b.id - a.id)
+  const activeData = clipsData.find(c => c.id === activeClip?.id) ?? clipsData[0]
+  const sorted = [...clipsData].sort((a, b) => sort === 'score' ? b.score - a.score : a.id - b.id)
 
   const toggleSel = (id: number) => setSelected(s => {
     const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n
   })
 
   const downloadClip = async (clip: Clip) => {
-    if (!clip.file_id) return
-    try {
-      const res = await api.get(`/download-clip/${clip.file_id}`, { responseType: 'blob' })
-      const url = URL.createObjectURL(res.data)
-      const a = document.createElement('a')
-      a.href = url; a.download = `${clip.label}.mp4`; a.click()
-      URL.revokeObjectURL(url)
-    } catch { /* clip not ready, no-op */ }
+    setRenderError('')
+    const c = clipsData.find(x => x.id === clip.id) ?? clip
+    if (!c.file_id) return
+
+    if (!c.rendered) {
+      setRendering(prev => new Set(prev).add(c.id))
+      try {
+        await api.post(`/extract-clips/${c.file_id}`, {
+          clip_indices: [c.id - 1],
+          enable_reframe: true,
+          enable_subtitles: true,
+        })
+        setClipsData(prev => prev.map(x => x.id === c.id ? { ...x, rendered: true } : x))
+      } catch (e: any) {
+        const msg = e?.response?.data?.detail || e?.message || 'Render failed'
+        setRenderError(typeof msg === 'string' ? msg.slice(0, 200) : 'Render failed')
+        setRendering(prev => { const n = new Set(prev); n.delete(c.id); return n })
+        return
+      }
+      setRendering(prev => { const n = new Set(prev); n.delete(c.id); return n })
+    }
+
+    const a = document.createElement('a')
+    a.href = `${API_BASE}/download-clip/${c.file_id}/${c.id}`
+    a.download = `${c.label}.mp4`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
   }
+
+  const isRendering = (id: number) => rendering.has(id)
+  const isRendered = (id: number) => clipsData.find(c => c.id === id)?.rendered ?? false
 
   return (
     <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 340px', overflow: 'hidden' }}>
@@ -582,8 +660,8 @@ function ResultsState({ clips, onNew }: { clips: Clip[]; onNew: () => void }) {
       <div style={{ padding: '28px', overflow: 'auto', borderRight: '1px solid var(--border)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>
           <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 16, fontWeight: 600, color: 'var(--hi)' }}>{clips.length} clips extracted</div>
-            <div style={{ fontSize: 12, color: 'var(--lo)', marginTop: 2 }}>YouTube video · processed</div>
+            <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 16, fontWeight: 600, color: 'var(--hi)' }}>{clipsData.length} clips found</div>
+            <div style={{ fontSize: 12, color: 'var(--lo)', marginTop: 2 }}>Select a clip → Render &amp; Download</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: 11, color: 'var(--lo)' }}>Sort:</span>
@@ -596,23 +674,23 @@ function ResultsState({ clips, onNew }: { clips: Clip[]; onNew: () => void }) {
               }}>{v === 'score' ? 'AI Score' : 'Timestamp'}</button>
             ))}
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg-card)', cursor: 'pointer', fontSize: 12, color: 'var(--mid)', fontFamily: "'DM Sans',sans-serif" }}>
-              <Icon d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" size={13} />
-              Download {selected.size > 0 ? `(${selected.size})` : 'all'}
-            </button>
-            <button onClick={onNew} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 7, border: 'none', background: 'var(--gold)', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'oklch(0.11 0.01 62)', fontFamily: "'DM Sans',sans-serif" }}>
-              + New video
-            </button>
-          </div>
+          <button onClick={onNew} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 7, border: 'none', background: 'var(--gold)', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'oklch(0.11 0.01 62)', fontFamily: "'DM Sans',sans-serif" }}>
+            + New video
+          </button>
         </div>
+
+        {renderError && (
+          <div style={{ marginBottom: 16, padding: '10px 14px', background: 'oklch(0.18 0.04 25)', border: '1px solid oklch(0.35 0.10 25)', borderRadius: 8, fontSize: 12, color: 'oklch(0.75 0.10 25)' }}>
+            ⚠️ {renderError}
+          </div>
+        )}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 14 }}>
           {sorted.map(clip => (
             <ClipCard key={clip.id} clip={clip}
               selected={selected.has(clip.id)}
-              active={activeClip?.id === clip.id}
-              onSelect={id => { toggleSel(id); setActiveClip(clips.find(c => c.id === id) ?? clips[0]) }}
+              active={activeData?.id === clip.id}
+              onSelect={id => { toggleSel(id); setActiveClip(clipsData.find(c => c.id === id) ?? clipsData[0]) }}
               onPlay={c => setActiveClip(c)}
             />
           ))}
@@ -621,32 +699,32 @@ function ResultsState({ clips, onNew }: { clips: Clip[]; onNew: () => void }) {
 
       {/* Right — detail panel */}
       <div style={{ padding: '28px 24px', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
-        {activeClip && <>
+        {activeData && <>
           {/* Preview */}
           <div style={{
             aspectRatio: '9/16', maxHeight: 280,
-            background: `repeating-linear-gradient(${activeClip.id * 30}deg,oklch(0.17 0.01 62) 0,oklch(0.17 0.01 62) 5px,oklch(0.21 0.015 70) 5px,oklch(0.21 0.015 70) 10px)`,
+            background: `repeating-linear-gradient(${activeData.id * 30}deg,oklch(0.17 0.01 62) 0,oklch(0.17 0.01 62) 5px,oklch(0.21 0.015 70) 5px,oklch(0.21 0.015 70) 10px)`,
             borderRadius: 10, border: '1px solid var(--border)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             position: 'relative', overflow: 'hidden', width: '100%', flexShrink: 0,
           }}>
-            <div style={{ position: 'absolute', bottom: 20, left: 16, right: 16, textAlign: 'center', fontFamily: "'Space Grotesk',sans-serif", fontSize: 14, fontWeight: 700, color: '#fff', textShadow: '0 2px 8px oklch(0 0 0 / 0.8)', lineHeight: 1.4 }}>
-              &ldquo;{activeClip.label}&rdquo;
+            <div style={{ position: 'absolute', bottom: 20, left: 16, right: 16, textAlign: 'center', fontFamily: "'Space Grotesk',sans-serif", fontSize: 13, fontWeight: 700, color: '#fff', textShadow: '0 2px 8px oklch(0 0 0 / 0.8)', lineHeight: 1.4 }}>
+              &ldquo;{activeData.hook || activeData.label}&rdquo;
             </div>
-            <button style={{ width: 48, height: 48, borderRadius: '50%', background: 'oklch(0 0 0 / 0.55)', border: '1.5px solid oklch(1 0 0 / 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white', paddingLeft: 3 }}>
-              <Icon d="M5 3l14 9-14 9V3z" size={18} fill="white" stroke="none" />
-            </button>
           </div>
 
           {/* Meta */}
           <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: 16 }}>
-            <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 15, fontWeight: 600, color: 'var(--hi)', marginBottom: 12 }}>{activeClip.label}</div>
+            <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 15, fontWeight: 600, color: 'var(--hi)', marginBottom: 8 }}>{activeData.label}</div>
+            {activeData.reason && (
+              <div style={{ fontSize: 12, color: 'var(--lo)', marginBottom: 12, lineHeight: 1.6 }}>{activeData.reason}</div>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               {[
-                { label: 'AI Score', val: `${activeClip.score}/100` },
-                { label: 'Duration', val: activeClip.dur },
-                { label: 'Format', val: '9:16 portrait' },
-                { label: 'Captions', val: 'Animated' },
+                { label: 'AI Score', val: `${activeData.score}/100` },
+                { label: 'Duration', val: activeData.dur },
+                { label: 'Start', val: formatDur(activeData.start_time) },
+                { label: 'End', val: formatDur(activeData.end_time) },
               ].map(m => (
                 <div key={m.label}>
                   <div style={{ fontSize: 10, color: 'var(--lo)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 2 }}>{m.label}</div>
@@ -656,44 +734,48 @@ function ResultsState({ clips, onNew }: { clips: Clip[]; onNew: () => void }) {
             </div>
           </div>
 
-          {/* Actions */}
+          {/* Download action */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <button onClick={() => downloadClip(activeClip)}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '11px 16px', borderRadius: 7, border: 'none', background: 'var(--gold)', cursor: 'pointer', fontFamily: "'DM Sans',sans-serif", fontWeight: 600, fontSize: 13, color: 'oklch(0.11 0.01 62)' }}>
-              <Icon d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" size={14} stroke="oklch(0.11 0.01 62)" />
-              Download clip
+            <button
+              onClick={() => downloadClip(activeData)}
+              disabled={isRendering(activeData.id)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '12px 16px', borderRadius: 7, border: 'none',
+                background: isRendering(activeData.id) ? 'oklch(0.20 0.01 62)' : 'var(--gold)',
+                cursor: isRendering(activeData.id) ? 'wait' : 'pointer',
+                fontFamily: "'DM Sans',sans-serif", fontWeight: 600, fontSize: 13,
+                color: isRendering(activeData.id) ? 'var(--lo)' : 'oklch(0.11 0.01 62)',
+                transition: 'all 0.2s',
+              }}>
+              <Icon d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" size={14}
+                stroke={isRendering(activeData.id) ? 'var(--lo)' : 'oklch(0.11 0.01 62)'} />
+              {isRendering(activeData.id)
+                ? (isRendered(activeData.id) ? 'Downloading…' : 'Rendering… (1–3 min)')
+                : isRendered(activeData.id) ? 'Download clip' : 'Render & Download'
+              }
             </button>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: 10, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg-card)', cursor: 'pointer', fontFamily: "'DM Sans',sans-serif", fontSize: 12, color: 'var(--mid)' }}>
-                <Icon d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" size={13} />
-                Edit captions
-              </button>
-              <button style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: 10, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg-card)', cursor: 'pointer', fontFamily: "'DM Sans',sans-serif", fontSize: 12, color: 'var(--mid)' }}>
-                <Icon d={['M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8', 'M16 6l-4-4-4 4', 'M12 2v13']} size={13} />
-                Share
-              </button>
+            <div style={{ fontSize: 11, color: 'var(--lo)', textAlign: 'center' }}>
+              {isRendered(activeData.id) ? '✓ Ready to download' : 'First render encodes captions + reframe'}
             </div>
           </div>
 
-          {/* Score breakdown */}
+          {/* Score + tags */}
           <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--mid)', marginBottom: 12 }}>Score breakdown</div>
-            {[
-              { label: 'Virality potential',    val: activeClip.score - 2 },
-              { label: 'Emotional impact',      val: activeClip.score - 8 },
-              { label: 'Information density',   val: activeClip.score - 5 },
-              { label: 'Hook strength',         val: Math.min(100, activeClip.score + 3) },
-            ].map(m => (
-              <div key={m.label} style={{ marginBottom: 10 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <span style={{ fontSize: 11, color: 'var(--lo)' }}>{m.label}</span>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--mid)' }}>{m.val}</span>
-                </div>
-                <div style={{ height: 3, background: 'var(--bg-lift)', borderRadius: 99, overflow: 'hidden' }}>
-                  <div style={{ width: `${m.val}%`, height: '100%', background: 'linear-gradient(90deg,var(--gold),oklch(0.88 0.12 68))', borderRadius: 99 }} />
-                </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--mid)' }}>Virality score</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--gold)' }}>{activeData.score}/100</span>
+            </div>
+            <div style={{ height: 6, background: 'var(--bg-lift)', borderRadius: 99, overflow: 'hidden', marginBottom: 12 }}>
+              <div style={{ width: `${activeData.score}%`, height: '100%', background: 'linear-gradient(90deg,var(--gold),oklch(0.88 0.12 68))', borderRadius: 99, transition: 'width 0.8s ease' }} />
+            </div>
+            {activeData.tags.length > 0 && (
+              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                {activeData.tags.map(t => (
+                  <span key={t} style={{ fontSize: 10, padding: '2px 7px', borderRadius: 99, background: 'var(--gold-dim12)', color: 'var(--gold)', border: '1px solid var(--gold-line)' }}>{t}</span>
+                ))}
               </div>
-            ))}
+            )}
           </div>
         </>}
       </div>
@@ -711,31 +793,36 @@ function ProcessPageInner() {
   const [view, setView] = useState<View>('upload')
   const [input, setInput] = useState<InputInfo | null>(null)
   const [clips, setClips] = useState<Clip[]>([])
-  const [username, setUsername] = useState<string | null>(null)
+  const [userEmail, setUserEmail] = useState<string | null>(null)
   const [authed, setAuthed] = useState(false)
 
   useEffect(() => {
     const token = getToken()
-    if (token) { setAuthed(true) }
+    if (token) {
+      api.get('/auth/me')
+        .then(res => { setUserEmail(res.data.email); setAuthed(true) })
+        .catch(() => { clearToken() })
+    }
   }, [])
 
   const handleSubmit = (inp: InputInfo) => { setInput(inp); setView('processing') }
-  const handleDone   = (c: Clip[]) => { setClips(c); setView('results') }
-  const handleNew    = () => { setInput(null); setClips([]); setView('upload') }
+  const handleDone = (c: Clip[]) => { setClips(c); setView('results') }
+  const handleNew = () => { setInput(null); setClips([]); setView('upload') }
+  const handleLogout = () => { clearToken(); setAuthed(false); setUserEmail(null); setView('upload') }
 
   const stepOrder = ['upload', 'processing', 'results'] as const
   const stepLabel = { upload: 'Upload', processing: 'Processing…', results: 'Results' }
 
-  const content = (
+  return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg)', overflow: 'hidden' }}>
-      <Nav onBack={view !== 'upload' ? handleNew : undefined} username={username ?? undefined} />
+      <Nav onBack={view !== 'upload' ? handleNew : undefined} userEmail={userEmail ?? undefined} onLogout={handleLogout} />
 
       {/* Step indicator */}
-      <div style={{ height: 36, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', padding: '0 28px', gap: 0, flexShrink: 0, background: 'oklch(0.12 0.01 62)' }}>
+      <div style={{ height: 36, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', padding: '0 28px', flexShrink: 0, background: 'oklch(0.12 0.01 62)' }}>
         {stepOrder.map((v, i) => {
           const curIdx = stepOrder.indexOf(view)
           return (
-            <div key={v} style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+            <div key={v} style={{ display: 'flex', alignItems: 'center' }}>
               <div style={{
                 display: 'flex', alignItems: 'center', gap: 7, fontSize: 12,
                 color: v === view ? 'var(--hi)' : i < curIdx ? 'var(--gold)' : 'var(--lo)',
@@ -753,22 +840,20 @@ function ProcessPageInner() {
                 </div>
                 {stepLabel[v]}
               </div>
-              {i < 2 && <div style={{ flex: 1, width: 40, height: 1, background: 'var(--border)', margin: '0 10px' }} />}
+              {i < 2 && <div style={{ width: 40, height: 1, background: 'var(--border)', margin: '0 10px' }} />}
             </div>
           )
         })}
       </div>
 
       {!authed
-        ? <AuthOverlay onAuth={u => { setUsername(u); setAuthed(true) }} />
+        ? <AuthOverlay onAuth={e => { setUserEmail(e); setAuthed(true) }} />
         : view === 'upload'     ? <UploadState onSubmit={handleSubmit} initialUrl={initialUrl} />
         : view === 'processing' ? <ProcessingState input={input} onDone={handleDone} />
         : <ResultsState clips={clips} onNew={handleNew} />
       }
     </div>
   )
-
-  return content
 }
 
 export default function ProcessPage() {
