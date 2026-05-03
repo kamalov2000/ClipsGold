@@ -7,6 +7,7 @@ import aiofiles
 import os
 import sys
 import subprocess
+import time
 from pathlib import Path
 import uuid
 import json
@@ -35,6 +36,14 @@ from services.limiter import limiter, rate_limit_handler, LIMITS
 from services.ssrf_guard import validate_import_url, validate_resolved_ip, YDL_SSRF_OPTS
 from services.auth import get_current_user
 from services.pipeline_upgrades import loudnorm_filter
+from services.pipeline_metrics import (
+    command_to_string,
+    elapsed_seconds,
+    file_size_mb,
+    log_stage,
+    resolution_string,
+    timer_start,
+)
 from jose import jwt as _jose_jwt, JWTError as _JWTError
 import hmac as _hmac
 import hashlib as _hashlib
@@ -362,11 +371,21 @@ async def _run_transcription_job(job_id: str, file_id: str, owner_id: str) -> No
         async def on_chunk_done(done: int, total: int) -> None:
             await asyncio.to_thread(_persist_progress, done, total)
 
+        transcription_started_at = timer_start()
         result, skipped_list = await run_whisper_transcribe_async(
             audio_path=audio_file,
             initial_prompt=INITIAL_PROMPT_TERMS,
             on_chunk_done=on_chunk_done,
             parallel_chunks=3,
+        )
+        log_stage(
+            "transcription",
+            elapsed_seconds(transcription_started_at),
+            file_id=file_id,
+            duration=video_duration,
+            segments=len(result.get("segments", [])),
+            skipped_chunks=len(skipped_list or []),
+            model="whisper-1",
         )
 
         try:
@@ -635,20 +654,29 @@ def fill_segment_gaps(segments: List[Dict], video_duration: float, gap_threshold
 
 def extract_audio(video_path: Path, audio_path: Path):
     # MP3 64kbps mono — ~8KB/s vs 32KB/s for WAV. 4x smaller → fewer API chunks.
+    cmd = [
+        get_ffmpeg_path(),
+        "-i", str(video_path),
+        "-vn",
+        "-acodec", "libmp3lame",
+        "-ar", "16000",
+        "-ac", "1",
+        "-b:a", "64k",
+        "-y",
+        str(audio_path)
+    ]
+    started_at = timer_start()
     subprocess.run(
-        [
-            get_ffmpeg_path(),
-            "-i", str(video_path),
-            "-vn",
-            "-acodec", "libmp3lame",
-            "-ar", "16000",
-            "-ac", "1",
-            "-b:a", "64k",
-            "-y",
-            str(audio_path)
-        ],
+        cmd,
         capture_output=True,
         check=True
+    )
+    log_stage(
+        "audio_extraction",
+        elapsed_seconds(started_at),
+        file_id=video_path.stem,
+        command=command_to_string(cmd),
+        output_size_mb=file_size_mb(audio_path),
     )
 
 
@@ -669,6 +697,10 @@ async def cut_video_segment_enhanced(
     sfx_path: Optional[Path] = None,
     jump_cut_segments: Optional[List[Dict]] = None,
     emoji_sequence: Optional[List[Dict]] = None,
+    clip_id: Optional[int] = None,
+    render_mode: Optional[str] = None,
+    source_resolution: Optional[str] = None,
+    target_resolution: str = "1080x1920",
 ):
     """
     TWO-PASS RENDERING: 1) Physical cut to reset timestamps, 2) Apply effects with 0-based subtitles
@@ -682,6 +714,7 @@ async def cut_video_segment_enhanced(
         emoji_sequence: Optional list of emoji pop-up configs [{"emoji": "🔥", "start": 2.0, "duration": 1.5}, ...]
     """
     duration = end_time - start_time
+    ffmpeg_render_started_at = timer_start()
 
     # Progress callback for WebSocket updates
     async def send_progress(tid: str, progress: dict):
@@ -713,7 +746,21 @@ async def cut_video_segment_enhanced(
                 "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-threads", "0",
                 "-c:a", "aac", "-b:a", "128k", "-y", str(seg_file)
             ]
+            cmd_started_at = timer_start()
             r = subprocess.run(cmd_seg, capture_output=True, text=True)
+            log_stage(
+                "ffmpeg_render_command",
+                elapsed_seconds(cmd_started_at),
+                file_id=input_path.stem,
+                clip_id=clip_id,
+                duration=seg_dur,
+                render_mode=render_mode,
+                source_resolution=source_resolution,
+                target_resolution=target_resolution,
+                ffmpeg_step="jump_cut_segment",
+                command=command_to_string(cmd_seg),
+                returncode=r.returncode,
+            )
             if r.returncode == 0:
                 segment_files.append(seg_file)
         if segment_files:
@@ -726,7 +773,21 @@ async def cut_video_segment_enhanced(
                 "-i", str(concat_list_path),
                 "-c", "copy", "-y", str(temp_cut_file)
             ]
+            cmd_started_at = timer_start()
             r2 = subprocess.run(cmd_concat, capture_output=True, text=True)
+            log_stage(
+                "ffmpeg_render_command",
+                elapsed_seconds(cmd_started_at),
+                file_id=input_path.stem,
+                clip_id=clip_id,
+                duration=duration,
+                render_mode=render_mode,
+                source_resolution=source_resolution,
+                target_resolution=target_resolution,
+                ffmpeg_step="jump_cut_concat",
+                command=command_to_string(cmd_concat),
+                returncode=r2.returncode,
+            )
             if r2.returncode != 0:
                 print(f"  [FAIL] Jump-cut concat failed, falling back to single-pass")
                 _use_jump_cut = False
@@ -765,6 +826,7 @@ async def cut_video_segment_enhanced(
         )
         parts = probe.stdout.strip().split(",")
         vid_width, vid_height = int(parts[0]), int(parts[1])
+        source_resolution = source_resolution or resolution_string(vid_width, vid_height)
         print(f"  [INFO] Video dimensions: {vid_width}x{vid_height}")
     except Exception as e:
         print(f"  [WARN] Could not probe video dimensions: {e}")
@@ -1072,6 +1134,7 @@ async def cut_video_segment_enhanced(
     # On Windows, asyncio.create_subprocess_exec can raise NotImplementedError;
     # run FFmpeg in a thread with sync Popen and schedule progress on the main loop.
     print(f"  -> Pass 2 command: {' '.join(str(c) for c in cmd_pass2)}")
+    cmd_started_at = timer_start()
     if task_id:
         print(f"  -> Tracking progress via WebSocket (task: {task_id})")
         if sys.platform == "win32":
@@ -1094,6 +1157,19 @@ async def cut_video_segment_enhanced(
     else:
         print(f"     Command: {' '.join(str(c) for c in cmd_pass2)}")
         result_pass2 = subprocess.run(cmd_pass2, capture_output=True, text=True)
+    log_stage(
+        "ffmpeg_render_command",
+        elapsed_seconds(cmd_started_at),
+        file_id=input_path.stem,
+        clip_id=clip_id,
+        duration=duration,
+        render_mode=render_mode,
+        source_resolution=source_resolution,
+        target_resolution=target_resolution,
+        ffmpeg_step="render_pass",
+        command=command_to_string(cmd_pass2),
+        returncode=result_pass2.returncode,
+    )
     
     if result_pass2.returncode != 0:
         raw_stderr = result_pass2.stderr or b""
@@ -1113,6 +1189,16 @@ async def cut_video_segment_enhanced(
         raise subprocess.CalledProcessError(result_pass2.returncode, cmd_pass2, result_pass2.stdout, result_pass2.stderr)
     
     print(f"  [OK] Render complete: Effects + logo watermark applied in single pass")
+    log_stage(
+        "ffmpeg_render_total",
+        elapsed_seconds(ffmpeg_render_started_at),
+        file_id=input_path.stem,
+        clip_id=clip_id,
+        duration=duration,
+        render_mode=render_mode,
+        source_resolution=source_resolution,
+        target_resolution=target_resolution,
+    )
 
     # ========== CLEANUP: DELETE TEMP FILE ==========
     if temp_cut_file.exists():
@@ -1340,6 +1426,7 @@ async def download_youtube(
     try:
         # Run blocking yt-dlp in thread to avoid blocking the event loop.
         # Pass canonical_url (not body.url) to prevent open-redirect exploitation.
+        download_started_at = timer_start()
         info = await asyncio.to_thread(_run_yt_dlp_download, canonical_url, output_path)
 
         if info is None:
@@ -1347,6 +1434,13 @@ async def download_youtube(
 
         video_title = info.get('title', 'Unknown')
         duration = info.get('duration', 0)
+        source_width = info.get("width")
+        source_height = info.get("height")
+        if (not source_width or not source_height) and info.get("requested_formats"):
+            fmt = next((f for f in info.get("requested_formats") or [] if f.get("vcodec") != "none"), None)
+            if fmt:
+                source_width = fmt.get("width")
+                source_height = fmt.get("height")
 
         if not output_path.exists():
             raise HTTPException(
@@ -1354,6 +1448,15 @@ async def download_youtube(
                 detail="Download failed - file not created. Check that FFmpeg is in PATH (needed for merging video+audio)."
             )
 
+        log_stage(
+            "download",
+            elapsed_seconds(download_started_at),
+            file_id=file_id,
+            duration=duration,
+            source_resolution=resolution_string(source_width, source_height),
+            output_size_mb=file_size_mb(output_path),
+            downloader="yt-dlp",
+        )
         log.info("youtube_download_complete", file_id=file_id, duration=duration)
         return {
             "file_id": file_id,
@@ -1727,15 +1830,32 @@ async def analyze_video(
         video_duration = get_video_duration(input_file)
         
         analyzer = create_analyzer(provider=provider)
+        analysis_started_at = timer_start()
         viral_clips = analyzer.analyze_transcription(transcription_text, video_duration, max_clips=max_clips)
+        log_stage(
+            "claude_analysis",
+            elapsed_seconds(analysis_started_at),
+            file_id=file_id,
+            duration=video_duration,
+            provider=provider,
+            clips=len(viral_clips),
+        )
         
         # Generate thumbnails for candidates
         print(f"-> Generating thumbnails for {len(viral_clips)} candidates...")
+        crop_started_at = timer_start()
         viral_clips_with_thumbnails = generate_thumbnails_for_candidates(
             input_video=input_file,
             candidates=viral_clips,
             output_dir=THUMBNAILS_DIR,
             file_id=file_id
+        )
+        log_stage(
+            "face_detection_crop_calculation",
+            elapsed_seconds(crop_started_at),
+            file_id=file_id,
+            duration=video_duration,
+            clips=len(viral_clips_with_thumbnails),
         )
         
         # Store candidates in memory for human review
@@ -1789,7 +1909,15 @@ async def analyze_video_autonomous(
         
         # Discover viral moments using Claude
         print(f"🤖 Starting autonomous viral moment discovery for {file_id}...")
+        analysis_started_at = timer_start()
         viral_moments = await discover_viral_moments(transcription_data)
+        log_stage(
+            "claude_analysis",
+            elapsed_seconds(analysis_started_at),
+            file_id=file_id,
+            provider="claude",
+            clips=len(viral_moments),
+        )
         
         if not viral_moments:
             raise HTTPException(
@@ -1812,11 +1940,18 @@ async def analyze_video_autonomous(
         
         # Generate thumbnails for viral moments
         print(f"-> Generating thumbnails for {len(viral_clips)} viral moments...")
+        crop_started_at = timer_start()
         viral_clips_with_thumbnails = generate_thumbnails_for_candidates(
             input_video=input_file,
             candidates=viral_clips,
             output_dir=THUMBNAILS_DIR,
             file_id=file_id
+        )
+        log_stage(
+            "face_detection_crop_calculation",
+            elapsed_seconds(crop_started_at),
+            file_id=file_id,
+            clips=len(viral_clips_with_thumbnails),
         )
         
         # Store candidates in memory
@@ -2002,11 +2137,20 @@ async def extract_viral_clips(
             elif reframer:
                 try:
                     # Pass crop_preview for split_screen mode support
+                    crop_started_at = timer_start()
                     crop_filter = reframer.get_crop_filter(
                         input_file,
                         clip["start_time"],
                         clip["end_time"],
                         crop_preview=crop_preview
+                    )
+                    log_stage(
+                        "face_detection_crop_calculation",
+                        elapsed_seconds(crop_started_at),
+                        file_id=file_id,
+                        clip_id=idx + 1,
+                        duration=clip["end_time"] - clip["start_time"],
+                        render_mode="face_crop",
                     )
                 except Exception as e:
                     print(f"Reframing failed for clip {idx + 1}: {e}")
@@ -2032,6 +2176,7 @@ async def extract_viral_clips(
                     # Check if split_screen mode for subtitle positioning
                     is_split_screen = crop_preview and crop_preview.get("mode") == "split_screen"
                     
+                    subtitles_started_at = timer_start()
                     sentence_starts = subtitle_gen.generate_ass_from_transcription(
                         transcription_data,
                         subtitle_path,
@@ -2042,6 +2187,14 @@ async def extract_viral_clips(
                         clip_duration=clip["end_time"] - clip["start_time"],
                         platform=request.platform,  # Pass platform for subtitle positioning
                         is_split_screen=is_split_screen  # Pass split_screen mode
+                    )
+                    log_stage(
+                        "subtitles_generation",
+                        elapsed_seconds(subtitles_started_at),
+                        file_id=file_id,
+                        clip_id=idx + 1,
+                        duration=clip["end_time"] - clip["start_time"],
+                        subtitle_path=str(subtitle_path),
                     )
                     fps_info = f"FPS: {video_info['fps']:.2f}" if video_info else "FPS: unknown"
                     print(f"[OK] Processing Clip {clip_id} with {fps_info} and Subtitles: {subtitle_path.name}")
@@ -2064,6 +2217,7 @@ async def extract_viral_clips(
                 if is_split_screen_mode:
                     print(f"  -> Mode: [!] SPLIT SCREEN")
                 
+                clip_render_started_at = timer_start()
                 await cut_video_segment_enhanced(
                     input_file,
                     clip_path,
@@ -2075,6 +2229,17 @@ async def extract_viral_clips(
                     video_fps=video_info['fps'] if video_info else None,
                     is_split_screen=is_split_screen_mode,
                     letterbox_with_blur=_force_blur,
+                    clip_id=idx + 1,
+                    render_mode="full_frame" if _force_blur else "face_crop",
+                )
+                log_stage(
+                    "total_clip_render",
+                    elapsed_seconds(clip_render_started_at),
+                    file_id=file_id,
+                    clip_id=idx + 1,
+                    duration=clip["end_time"] - clip["start_time"],
+                    render_mode="full_frame" if _force_blur else "face_crop",
+                    target_resolution="1080x1920",
                 )
                 print(f"[OK] Clip {idx + 1} rendered successfully: {clip_filename}")
                 
