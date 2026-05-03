@@ -34,6 +34,7 @@ interface InputInfo {
   type: 'url' | 'file'
   url?: string
   name?: string
+  file?: File
 }
 
 /* ─── icon ─── */
@@ -187,12 +188,12 @@ function UploadState({ onSubmit, initialUrl }: { onSubmit: (inp: InputInfo) => v
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault(); setDragging(false)
     const f = e.dataTransfer.files[0]
-    if (f) onSubmit({ type: 'file', name: f.name })
+    if (f) onSubmit({ type: 'file', name: f.name, file: f })
   }, [onSubmit])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
-    if (f) onSubmit({ type: 'file', name: f.name })
+    if (f) onSubmit({ type: 'file', name: f.name, file: f })
   }
 
   const handleUrlSubmit = () => {
@@ -291,11 +292,13 @@ function UploadState({ onSubmit, initialUrl }: { onSubmit: (inp: InputInfo) => v
 /* ══════════════════════════════
    STATE 2 — PROCESSING (real API)
 ══════════════════════════════ */
-const STEPS = [
-  { id: 'fetch',   label: 'Fetching video',    sub: 'Downloading from YouTube…' },
-  { id: 'whisper', label: 'Transcribing audio', sub: 'Whisper speech recognition…' },
-  { id: 'claude',  label: 'Analysing moments',  sub: 'Claude scoring each segment…' },
-]
+function getSteps(isFile: boolean) {
+  return [
+    { id: 'fetch',   label: isFile ? 'Uploading video'  : 'Fetching video',    sub: isFile ? 'Sending file to server…' : 'Downloading from YouTube…' },
+    { id: 'whisper', label: 'Transcribing audio', sub: 'Whisper speech recognition…' },
+    { id: 'claude',  label: 'Analysing moments',  sub: 'Claude scoring each segment…' },
+  ]
+}
 
 function ProcessingState({ input, onDone }: { input: InputInfo | null; onDone: (clips: Clip[]) => void }) {
   const [step, setStep] = useState(0)
@@ -305,6 +308,8 @@ function ProcessingState({ input, onDone }: { input: InputInfo | null; onDone: (
   const [error, setError] = useState('')
   const [videoDuration, setVideoDuration] = useState(0)
 
+  const STEPS = getSteps(input?.type === 'file')
+
   const addLog = useCallback((msg: string) => {
     setLog(prev => [...prev.slice(-14), msg])
   }, [])
@@ -312,31 +317,54 @@ function ProcessingState({ input, onDone }: { input: InputInfo | null; onDone: (
   useEffect(() => {
     if (!input) return
 
-    if (input.type === 'file') {
-      setError('File upload pipeline is not yet connected. Please use a YouTube URL.')
-      return
-    }
-    if (!input.url) { setError('No URL provided'); return }
-
     let cancelled = false
 
     const run = async () => {
       try {
-        // ── Step 1: Download ─────────────────────────────────────────────
+        // ── Step 1: Download or Upload ───────────────────────────────────
         setStep(0); setPct(5)
-        addLog('Connecting to YouTube…')
+        let fileId: string
+        let sizeMb = 0
 
-        const dlRes = await api.post('/download-youtube', { url: input.url })
-        if (cancelled) return
+        if (input.type === 'file') {
+          if (!input.file) { setError('No file selected'); return }
+          addLog(`Uploading "${input.name?.slice(0, 50)}"…`)
 
-        const fileId: string = dlRes.data.file_id
-        const title: string = dlRes.data.title || 'Video'
-        const duration: number = dlRes.data.duration || 0
-        const sizeMb = Math.round((dlRes.data.size || 0) / 1024 / 1024)
+          const formData = new FormData()
+          formData.append('file', input.file)
 
-        setVideoDuration(duration)
-        addLog(`Downloaded: "${title.slice(0, 55)}"`)
-        addLog(`Duration: ${formatDur(duration)} · ${sizeMb} MB`)
+          const upRes = await api.post('/upload', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+            onUploadProgress: (e) => {
+              if (e.total) {
+                const p = Math.round((e.loaded / e.total) * 100)
+                setPct(Math.round(p * 0.25))
+                if (p % 20 === 0) addLog(`Uploading… ${p}%`)
+              }
+            },
+          })
+          if (cancelled) return
+
+          fileId = upRes.data.file_id
+          sizeMb = Math.round((upRes.data.size || 0) / 1024 / 1024)
+          addLog(`Upload complete — ${sizeMb} MB`)
+        } else {
+          if (!input.url) { setError('No URL provided'); return }
+          addLog('Connecting to YouTube…')
+
+          const dlRes = await api.post('/download-youtube', { url: input.url })
+          if (cancelled) return
+
+          fileId = dlRes.data.file_id
+          const title: string = dlRes.data.title || 'Video'
+          const duration: number = dlRes.data.duration || 0
+          sizeMb = Math.round((dlRes.data.size || 0) / 1024 / 1024)
+
+          setVideoDuration(duration)
+          addLog(`Downloaded: "${title.slice(0, 55)}"`)
+          addLog(`Duration: ${formatDur(duration)} · ${sizeMb} MB`)
+        }
+
         setPct(25)
         setStepsDone(prev => { const n = [...prev]; n[0] = true; return n })
 

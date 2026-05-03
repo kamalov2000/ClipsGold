@@ -1370,16 +1370,17 @@ async def upload_video(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
 ):
-    if not file.filename.endswith('.mp4'):
-        raise HTTPException(status_code=400, detail="Only MP4 files are allowed")
+    allowed_exts = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.m4v', '.flv', '.wmv', '.ts', '.mts'}
+    ext = Path(file.filename).suffix.lower() if file.filename else ''
+    if ext not in allowed_exts:
+        raise HTTPException(status_code=400, detail=f"Unsupported format '{ext}'. Allowed: mp4, mov, avi, mkv, webm, m4v, flv, wmv")
 
     file_id = str(uuid.uuid4())
-    file_extension = Path(file.filename).suffix
-    file_path = UPLOAD_DIR / f"{file_id}{file_extension}"
+    # Always store as .mp4 — FFmpeg handles all input formats and the rest of the pipeline expects .mp4
+    file_path = UPLOAD_DIR / f"{file_id}.mp4"
 
-    # Async chunked write — does not block the event loop during upload
     async with aiofiles.open(file_path, "wb") as buffer:
-        while chunk := await file.read(1024 * 1024):  # 1 MB chunks
+        while chunk := await file.read(1024 * 1024):
             await buffer.write(chunk)
 
     return {
