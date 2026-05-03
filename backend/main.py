@@ -1111,6 +1111,7 @@ async def cut_video_segment_enhanced(
     # Output specs for compatibility
     cmd_pass2.extend(["-r", "30"])
     cmd_pass2.extend(["-pix_fmt", "yuv420p"])
+    cmd_pass2.extend(["-movflags", "+faststart"])
     cmd_pass2.extend(["-async", "1"])
     cmd_pass2.extend(["-vsync", "cfr"])
     cmd_pass2.extend(["-y", str(output_path)])
@@ -2051,6 +2052,171 @@ class RenderClipRequest(BaseModel):
     render_mode: str = "auto"  # "auto" | "face_crop" | "blur_background"
 
 
+async def _render_one_clip(
+    idx: int,
+    clip: dict,
+    file_id: str,
+    input_file,
+    viral_clips_count: int,
+    enable_reframe: bool,
+    enable_subtitles: bool,
+    platform: str,
+    transcription_data,
+    sem: asyncio.Semaphore,
+) -> dict:
+    clip_filename = f"{file_id}_clip_{idx + 1}_VIRAL_GOLD.mp4"
+    clip_path = CLIPS_DIR / clip_filename
+
+    reframer = create_reframer() if enable_reframe else None
+    subtitle_gen = create_subtitle_generator() if enable_subtitles else None
+
+    try:
+        crop_filter = None
+        crop_preview = clip.get("crop_preview")
+
+        _preview_mode = (crop_preview or {}).get("mode", "center_crop")
+        _has_face = _preview_mode not in ("center_crop", None) and bool((crop_preview or {}).get("faces"))
+        _force_blur = not _has_face and _preview_mode != "split_screen"
+
+        if _force_blur:
+            print(f"  -> No face detected (mode={_preview_mode}) — using blur background mode")
+        elif reframer:
+            try:
+                crop_started_at = timer_start()
+                crop_filter = reframer.get_crop_filter(
+                    input_file,
+                    clip["start_time"],
+                    clip["end_time"],
+                    crop_preview=crop_preview
+                )
+                log_stage(
+                    "face_detection_crop_calculation",
+                    elapsed_seconds(crop_started_at),
+                    file_id=file_id,
+                    clip_id=idx + 1,
+                    duration=clip["end_time"] - clip["start_time"],
+                    render_mode="face_crop",
+                )
+            except Exception as e:
+                print(f"Reframing failed for clip {idx + 1}: {e}")
+
+        video_info = None
+        if reframer:
+            try:
+                video_info = reframer.get_video_info(input_file)
+            except Exception as e:
+                print(f"[WARN] Could not get video info: {e}")
+
+        subtitle_path = None
+        sentence_starts = []
+        if subtitle_gen and transcription_data:
+            try:
+                timestamp = int(time.time() * 1000)
+                clip_id_str = f"{file_id}_clip_{idx + 1}"
+                subtitle_path = OUTPUT_DIR / f"subs_{clip_id_str}_{timestamp}.ass"
+
+                is_split_screen = crop_preview and crop_preview.get("mode") == "split_screen"
+
+                subtitles_started_at = timer_start()
+                sentence_starts = subtitle_gen.generate_ass_from_transcription(
+                    transcription_data,
+                    subtitle_path,
+                    hook_text=clip.get("hook", ""),
+                    emojis=clip.get("emojis", []),
+                    clip_start_time=clip["start_time"],
+                    clip_end_time=clip["end_time"],
+                    clip_duration=clip["end_time"] - clip["start_time"],
+                    platform=platform,
+                    is_split_screen=is_split_screen
+                )
+                log_stage(
+                    "subtitles_generation",
+                    elapsed_seconds(subtitles_started_at),
+                    file_id=file_id,
+                    clip_id=idx + 1,
+                    duration=clip["end_time"] - clip["start_time"],
+                    subtitle_path=str(subtitle_path),
+                )
+                fps_info = f"FPS: {video_info['fps']:.2f}" if video_info else "FPS: unknown"
+                print(f"[OK] Processing Clip {clip_id_str} with {fps_info} and Subtitles: {subtitle_path.name}")
+                if len(sentence_starts) > 5:
+                    print(f"  -> Sentence starts for zoom: {sentence_starts[:5]}...")
+                else:
+                    print(f"  -> Sentence starts: {sentence_starts}")
+            except Exception as e:
+                print(f"[FAIL] Subtitle generation failed for clip {idx + 1}: {e}")
+
+        zoom_filter = None
+        clip_duration = clip["end_time"] - clip["start_time"]
+        print(f"  -> Continuous slow zoom will be applied (1.0->1.1 over {clip_duration:.1f}s)")
+
+        try:
+            print(f"\n-> Processing Clip {idx + 1}/{viral_clips_count}: {clip['title'][:40]}...")
+            print(f"  -> Time range: {clip['start_time']:.1f}s - {clip['end_time']:.1f}s")
+            print(f"  -> Crop: {'YES' if crop_filter else 'NO'}")
+            print(f"  -> Subtitles: {'YES' if subtitle_path and subtitle_path.exists() else 'NO'}")
+
+            is_split_screen_mode = bool(crop_preview and crop_preview.get("mode") == "split_screen")
+            if is_split_screen_mode:
+                print(f"  -> Mode: [!] SPLIT SCREEN")
+
+            clip_render_started_at = timer_start()
+            async with sem:
+                await cut_video_segment_enhanced(
+                    input_file,
+                    clip_path,
+                    clip["start_time"],
+                    clip["end_time"],
+                    subtitle_path=subtitle_path,
+                    crop_filter=crop_filter,
+                    zoom_filter=zoom_filter,
+                    video_fps=video_info['fps'] if video_info else None,
+                    is_split_screen=is_split_screen_mode,
+                    letterbox_with_blur=_force_blur,
+                    clip_id=idx + 1,
+                    render_mode="full_frame" if _force_blur else "face_crop",
+                )
+            log_stage(
+                "total_clip_render",
+                elapsed_seconds(clip_render_started_at),
+                file_id=file_id,
+                clip_id=idx + 1,
+                duration=clip["end_time"] - clip["start_time"],
+                render_mode="full_frame" if _force_blur else "face_crop",
+                target_resolution="1080x1920",
+            )
+            print(f"[OK] Clip {idx + 1} rendered successfully: {clip_filename}")
+
+            if subtitle_path and subtitle_path.exists():
+                file_size = subtitle_path.stat().st_size
+                print(f"  -> Subtitle file kept: {subtitle_path.name} ({file_size} bytes)")
+        except subprocess.CalledProcessError as e:
+            print(f"❌ FFmpeg failed for clip {idx + 1}")
+            print(f"  -> Error: {str(e)[:200]}")
+            raise
+        except Exception as e:
+            print(f"❌ Clip rendering failed: {e}")
+            raise
+
+        return {
+            "clip_id": idx + 1,
+            "filename": clip_filename,
+            "title": clip["title"],
+            "start_time": clip["start_time"],
+            "end_time": clip["end_time"],
+            "virality_score": clip["virality_score"],
+            "reason": clip["reason"],
+            "hook": clip.get("hook", ""),
+            "enhanced": {
+                "reframed": crop_filter is not None,
+                "subtitles": subtitle_path is not None and subtitle_path.exists()
+            }
+        }
+    finally:
+        if reframer:
+            reframer.close()
+
+
 @app.post("/extract-clips/{file_id}")
 async def extract_viral_clips(
     file_id: str,
@@ -2106,9 +2272,6 @@ async def extract_viral_clips(
             with transcription_file.open("r", encoding="utf-8") as f:
                 transcription_data = json.load(f)
         
-        reframer = create_reframer() if request.enable_reframe else None
-        subtitle_gen = create_subtitle_generator() if request.enable_subtitles else None
-        
         print(f"\n{'='*60}")
         print(f"RENDERING CLIPS FOR {file_id.upper()}")
         print(f"{'='*60}")
@@ -2117,162 +2280,22 @@ async def extract_viral_clips(
         print(f"Subtitles: {request.enable_subtitles}")
         print(f"Clips to render: {len(viral_clips)}")
         print(f"{'='*60}\n")
-        
-        extracted_clips = []
-        
-        for idx, clip in enumerate(viral_clips):
-            clip_filename = f"{file_id}_clip_{idx + 1}_VIRAL_GOLD.mp4"
-            clip_path = CLIPS_DIR / clip_filename
-            
-            crop_filter = None
-            crop_preview = clip.get("crop_preview")
 
-            # Detect no-face mode: use blur background instead of smart crop
-            _preview_mode = (crop_preview or {}).get("mode", "center_crop")
-            _has_face = _preview_mode not in ("center_crop", None) and bool((crop_preview or {}).get("faces"))
-            _force_blur = not _has_face and _preview_mode != "split_screen"
+        sem = asyncio.Semaphore(3)
+        tasks = [
+            _render_one_clip(
+                idx, clip, file_id, input_file, len(viral_clips),
+                request.enable_reframe, request.enable_subtitles,
+                request.platform, transcription_data, sem
+            )
+            for idx, clip in enumerate(viral_clips)
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, Exception):
+                raise r
+        extracted_clips = list(results)
 
-            if _force_blur:
-                print(f"  -> No face detected (mode={_preview_mode}) — using blur background mode")
-            elif reframer:
-                try:
-                    # Pass crop_preview for split_screen mode support
-                    crop_started_at = timer_start()
-                    crop_filter = reframer.get_crop_filter(
-                        input_file,
-                        clip["start_time"],
-                        clip["end_time"],
-                        crop_preview=crop_preview
-                    )
-                    log_stage(
-                        "face_detection_crop_calculation",
-                        elapsed_seconds(crop_started_at),
-                        file_id=file_id,
-                        clip_id=idx + 1,
-                        duration=clip["end_time"] - clip["start_time"],
-                        render_mode="face_crop",
-                    )
-                except Exception as e:
-                    print(f"Reframing failed for clip {idx + 1}: {e}")
-            
-            # Get video FPS for sync
-            video_info = None
-            if reframer:
-                try:
-                    video_info = reframer.get_video_info(input_file)
-                except Exception as e:
-                    print(f"[WARN] Could not get video info: {e}")
-            
-            subtitle_path = None
-            sentence_starts = []
-            if subtitle_gen and transcription_data:
-                try:
-                    # Unique subtitle path with timestamp to avoid overwriting
-                    import time
-                    timestamp = int(time.time() * 1000)
-                    clip_id = f"{file_id}_clip_{idx + 1}"
-                    subtitle_path = OUTPUT_DIR / f"subs_{clip_id}_{timestamp}.ass"
-                    
-                    # Check if split_screen mode for subtitle positioning
-                    is_split_screen = crop_preview and crop_preview.get("mode") == "split_screen"
-                    
-                    subtitles_started_at = timer_start()
-                    sentence_starts = subtitle_gen.generate_ass_from_transcription(
-                        transcription_data,
-                        subtitle_path,
-                        hook_text=clip.get("hook", ""),
-                        emojis=clip.get("emojis", []),
-                        clip_start_time=clip["start_time"],
-                        clip_end_time=clip["end_time"],
-                        clip_duration=clip["end_time"] - clip["start_time"],
-                        platform=request.platform,  # Pass platform for subtitle positioning
-                        is_split_screen=is_split_screen  # Pass split_screen mode
-                    )
-                    log_stage(
-                        "subtitles_generation",
-                        elapsed_seconds(subtitles_started_at),
-                        file_id=file_id,
-                        clip_id=idx + 1,
-                        duration=clip["end_time"] - clip["start_time"],
-                        subtitle_path=str(subtitle_path),
-                    )
-                    fps_info = f"FPS: {video_info['fps']:.2f}" if video_info else "FPS: unknown"
-                    print(f"[OK] Processing Clip {clip_id} with {fps_info} and Subtitles: {subtitle_path.name}")
-                    print(f"  -> Sentence starts for zoom: {sentence_starts[:5]}...") if len(sentence_starts) > 5 else print(f"  -> Sentence starts: {sentence_starts}")
-                except Exception as e:
-                    print(f"[FAIL] Subtitle generation failed for clip {idx + 1}: {e}")
-            
-            zoom_filter = None
-            clip_duration = clip["end_time"] - clip["start_time"]
-            print(f"  -> Continuous slow zoom will be applied (1.0->1.1 over {clip_duration:.1f}s)")
-            
-            try:
-                print(f"\n-> Processing Clip {idx + 1}/{len(viral_clips)}: {clip['title'][:40]}...")
-                print(f"  -> Time range: {clip['start_time']:.1f}s - {clip['end_time']:.1f}s")
-                print(f"  -> Crop: {'YES' if crop_filter else 'NO'}")
-                print(f"  -> Subtitles: {'YES' if subtitle_path and subtitle_path.exists() else 'NO'}")
-                
-                # Determine if split_screen mode (already set during subtitle generation)
-                is_split_screen_mode = crop_preview and crop_preview.get("mode") == "split_screen" if crop_preview else False
-                if is_split_screen_mode:
-                    print(f"  -> Mode: [!] SPLIT SCREEN")
-                
-                clip_render_started_at = timer_start()
-                await cut_video_segment_enhanced(
-                    input_file,
-                    clip_path,
-                    clip["start_time"],
-                    clip["end_time"],
-                    subtitle_path=subtitle_path,
-                    crop_filter=crop_filter,
-                    zoom_filter=zoom_filter,
-                    video_fps=video_info['fps'] if video_info else None,
-                    is_split_screen=is_split_screen_mode,
-                    letterbox_with_blur=_force_blur,
-                    clip_id=idx + 1,
-                    render_mode="full_frame" if _force_blur else "face_crop",
-                )
-                log_stage(
-                    "total_clip_render",
-                    elapsed_seconds(clip_render_started_at),
-                    file_id=file_id,
-                    clip_id=idx + 1,
-                    duration=clip["end_time"] - clip["start_time"],
-                    render_mode="full_frame" if _force_blur else "face_crop",
-                    target_resolution="1080x1920",
-                )
-                print(f"[OK] Clip {idx + 1} rendered successfully: {clip_filename}")
-                
-                # Keep subtitle files for debugging
-                if subtitle_path and subtitle_path.exists():
-                    file_size = subtitle_path.stat().st_size
-                    print(f"  -> Subtitle file kept: {subtitle_path.name} ({file_size} bytes)")
-            except subprocess.CalledProcessError as e:
-                print(f"❌ FFmpeg failed for clip {idx + 1}")
-                print(f"  -> Error: {str(e)[:200]}")
-                raise
-            except Exception as e:
-                print(f"❌ Clip rendering failed: {e}")
-                raise
-            
-            extracted_clips.append({
-                "clip_id": idx + 1,
-                "filename": clip_filename,
-                "title": clip["title"],
-                "start_time": clip["start_time"],
-                "end_time": clip["end_time"],
-                "virality_score": clip["virality_score"],
-                "reason": clip["reason"],
-                "hook": clip.get("hook", ""),
-                "enhanced": {
-                    "reframed": crop_filter is not None,
-                    "subtitles": subtitle_path is not None and subtitle_path.exists()
-                }
-            })
-        
-        if reframer:
-            reframer.close()
-        
         return {
             "clips": extracted_clips,
             "message": f"Successfully extracted {len(extracted_clips)} viral clips with enhancements"
