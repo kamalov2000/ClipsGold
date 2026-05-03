@@ -334,7 +334,6 @@ function ProcessingState({ input, onDone }: { input: InputInfo | null; onDone: (
           formData.append('file', input.file)
 
           const upRes = await api.post('/upload', formData, {
-            headers: { 'Content-Type': 'multipart/form-data' },
             onUploadProgress: (e) => {
               if (e.total) {
                 const p = Math.round((e.loaded / e.total) * 100)
