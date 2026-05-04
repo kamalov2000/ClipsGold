@@ -179,27 +179,38 @@ async def run_ffmpeg_with_progress(
     print(f"   Expected duration: {duration:.1f}s")
     print(f"   Command: {' '.join(str(c) for c in cmd)}")
     
-    # Start FFmpeg process
+    # Start FFmpeg process — 1 MB line buffer prevents ValueError when FFmpeg
+    # emits very long lines (filter-graph dumps, codec info, etc.)
     process = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
+        stderr=asyncio.subprocess.PIPE,
+        limit=1024 * 1024,
     )
-    
+
     stderr_output = []
     last_progress = 0
-    
+
     # Read stderr line by line
     while True:
-        line = await process.stderr.readline()
+        try:
+            line = await process.stderr.readline()
+        except Exception:
+            break
         if not line:
             break
-        
-        line_str = line.decode('utf-8', errors='ignore').strip()
+
+        try:
+            line_str = line.decode('utf-8', errors='ignore').strip()
+        except Exception:
+            continue
         stderr_output.append(line_str)
-        
+
         # Parse progress
-        progress_info = parse_ffmpeg_progress(line_str)
+        try:
+            progress_info = parse_ffmpeg_progress(line_str)
+        except Exception:
+            continue
         if progress_info and duration > 0:
             current_time = progress_info['time_seconds']
             percentage = min(int((current_time / duration) * 100), 99)
