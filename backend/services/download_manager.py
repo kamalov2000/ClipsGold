@@ -197,7 +197,7 @@ class UniversalDownloader:
     async def _ytdlp_audio(self, url: str, out: Path) -> Path:
         cmd = self._build_ytdlp_cmd(url, audio_only=True, output=out)
         log.info(f"[yt-dlp audio] {url}")
-        await _run_async(cmd, timeout=120)
+        await _run_async(cmd, timeout=600)  # 10 min — long videos need time
         # yt-dlp may rename file (adds extension)
         actual = _find_output_file(out)
         log.info(f"[yt-dlp audio] Saved: {actual}")
@@ -206,7 +206,7 @@ class UniversalDownloader:
     async def _ffmpeg_extract_audio(self, video: Path, out: Path) -> Path:
         cmd = ["ffmpeg", "-y", "-i", str(video), "-vn",
                "-c:a", "aac", "-b:a", TARGET_BITRATE_AUDIO, str(out)]
-        await _run_async(cmd, timeout=120)
+        await _run_async(cmd, timeout=300)
         return out
 
     # ── Internal: video download ──────────────────────────────

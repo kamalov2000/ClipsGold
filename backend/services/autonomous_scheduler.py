@@ -111,16 +111,18 @@ async def process_discovery_item(
         _mark_status(db, discovery.id, DiscoveryStatus.downloading)
 
         transcript_result = {}
+        transcript_error: Optional[str] = None
         audio_path: Optional[Path] = None
 
         async def _on_audio_ready(ap: Path):
-            nonlocal audio_path, transcript_result
+            nonlocal audio_path, transcript_result, transcript_error
             audio_path = ap
             log.info(f"[pipeline] Audio ready, starting transcription: {ap}")
             _mark_status(db, discovery.id, DiscoveryStatus.transcribing)
             try:
                 transcript_result = await transcribe_func(str(ap))
             except Exception as e:
+                transcript_error = str(e)
                 log.error(f"[pipeline] Transcription failed: {e}")
 
         from services.download_manager import UniversalDownloader
@@ -132,9 +134,10 @@ async def process_discovery_item(
                      file_id=str(source_video_path) if source_video_path else None)
 
         if not transcript_result:
-            _mark_status(db, discovery.id, DiscoveryStatus.failed, error_message="Transcription failed")
+            err_detail = transcript_error or "empty result (no speech detected)"
+            _mark_status(db, discovery.id, DiscoveryStatus.failed, error_message=f"Transcription failed: {err_detail}")
             if telegram_enabled:
-                notify_error("transcribe", "Transcription returned empty result", url)
+                notify_error("transcribe", f"Transcription failed: {err_detail}", url)
             return False
 
         log.info(f"[pipeline] Transcribed: {len(transcript_result.get('text', ''))} chars")
