@@ -1053,20 +1053,8 @@ async def cut_video_segment_enhanced(
     cmd_pass2.extend(["-vsync", "cfr"])
     cmd_pass2.extend(["-y", str(output_path)])
     
-    # ── Subtitle file diagnostics before Pass 2 ──────────────────────────
-    if subtitle_path:
-        if subtitle_path.exists():
-            sub_size = subtitle_path.stat().st_size
-            print(f"  [SUB] Subtitle file: {subtitle_path} (size={sub_size} bytes)")
-            try:
-                sub_lines = subtitle_path.read_text(encoding="utf-8-sig", errors="replace").splitlines()
-                print(f"  [SUB] First 30 lines of subtitle file:")
-                for i, ln in enumerate(sub_lines[:30]):
-                    print(f"    {i+1:3d}: {ln}")
-            except Exception as _sub_e:
-                print(f"  [SUB] Could not read subtitle file: {_sub_e}")
-        else:
-            print(f"  [SUB] ⚠️  Subtitle file NOT FOUND: {subtitle_path}")
+    if subtitle_path and not subtitle_path.exists():
+        print(f"  [WARN] Subtitle file not found: {subtitle_path}")
 
     # Run Pass 2 with progress tracking if task_id provided
     # On Windows, asyncio.create_subprocess_exec can raise NotImplementedError;

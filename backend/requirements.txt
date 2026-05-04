@@ -32,7 +32,6 @@ structlog>=24.1.0
 sentry-sdk[fastapi,celery,sqlalchemy]>=1.40.0
 
 # ── AI / ML ──────────────────────────────────────────────────
-faster-whisper>=1.0.0
 openai>=1.50.0
 anthropic>=0.40.0
 numpy
