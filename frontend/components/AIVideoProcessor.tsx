@@ -356,7 +356,7 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
           manual_crop_x: manualCropX[clipIndex] !== null && manualCropX[clipIndex] !== undefined
             ? manualCropX[clipIndex]
             : null,
-          subtitle_style: subtitleStyles[clipIndex] || 'hormozi',
+          subtitle_style: subtitleStyles[clipIndex] || 'podcast',
           subtitle_language: subtitleLanguages[clipIndex] || 'auto',
           enable_jump_cut: enableJumpCut,
           enable_sfx: false,
@@ -878,10 +878,11 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
                       </div>
                       {/* Subtitle style selector */}
                       <select
-                        value={subtitleStyles[index] || 'hormozi'}
+                        value={subtitleStyles[index] || 'podcast'}
                         onChange={(e) => setSubtitleStyles(prev => ({ ...prev, [index]: e.target.value }))}
                         className="text-xs border border-purple-300 rounded-lg px-2 py-1 bg-white text-purple-700 font-semibold focus:ring-2 focus:ring-purple-400 cursor-pointer"
                       >
+                        <option value="podcast">🎙 Podcast</option>
                         <option value="hormozi">🟡 Hormozi</option>
                         <option value="minimal">⚪ Minimal</option>
                       </select>
