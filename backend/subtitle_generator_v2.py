@@ -33,6 +33,9 @@ SUBTITLE_STYLES = {
     "minimal": (
         "Arial", 44, "&H00FFFFFF", "&H00FFFFFF", "&H00000000", 2, 2, 120, 0
     ),
+    "podcast": (
+        "Montserrat", 52, "&H00FFFFFF", "&H00FFFFFF", "&H00000000", 3, 0, 450, -1
+    ),
 }
 
 
@@ -185,6 +188,35 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         # Split-screen mode uses same positioning as standard mode now
         return f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{subtitle_text}\n"
     
+    def create_static_subtitle(
+        self,
+        chunk: List[Dict],
+        chunk_start: float,
+        chunk_end: float,
+        clip_start_time: float,
+    ) -> str:
+        """Create a static subtitle line (no animation) for podcast style."""
+        if not chunk:
+            return ""
+
+        chunk_end = chunk[-1].get("end", chunk_start + 1)
+        adjusted_start = max(0, chunk_start - clip_start_time)
+        adjusted_end = chunk_end - clip_start_time
+
+        if adjusted_end <= 0:
+            return ""
+
+        words = " ".join(
+            self.escape_ass_text(w.get("word", "").strip())
+            for w in chunk
+            if w.get("word", "").strip()
+        )
+
+        start_time = self.format_timestamp(adjusted_start)
+        end_time = self.format_timestamp(adjusted_end)
+
+        return f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{words}\n"
+
     def get_sentence_start_times(self, transcription_data: Dict, clip_start_time: float, clip_end_time: Optional[float]) -> List[float]:
         """Extract sentence start times for zoom effect"""
         sentence_starts = []
@@ -355,8 +387,19 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             
             total_words += len(clip_words)
             
+            # PODCAST STYLE: static text, 6 words per phrase, no animation
+            if subtitle_style == "podcast":
+                chunks = self.chunk_words(clip_words, max_words=6)
+                for chunk in chunks:
+                    chunk_start = chunk[0].get("start", 0) if chunk else clip_start_time
+                    chunk_end = chunk[-1].get("end", chunk_start + 1) if chunk else chunk_start + 1
+                    subtitle_line = self.create_static_subtitle(chunk, chunk_start, chunk_end, clip_start_time)
+                    if subtitle_line:
+                        ass_content += subtitle_line
+                        total_subtitle_lines += 1
+
             # SEMANTIC CHUNKING: Claude groups phrases for readability
-            if self.use_semantic_chunking:
+            elif self.use_semantic_chunking:
                 # Get semantic chunks from AI (async call needs to be run in event loop)
                 segment_text = segment.get("text", "")
                 try:
@@ -370,16 +413,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                                 preserve_timing=True,
                             )
                         ).result(timeout=30)
-                    
+
                     # Create subtitles from semantic chunks
                     for semantic_chunk in semantic_chunks:
                         chunk_words = semantic_chunk.get("words", [])
                         if not chunk_words:
                             continue
-                        
+
                         chunk_start = semantic_chunk.get("start", clip_start_time)
                         chunk_end = semantic_chunk.get("end", chunk_start + 1)
-                        
+
                         subtitle_line = self.create_chunk_subtitle(
                             chunk_words,
                             chunk_start,

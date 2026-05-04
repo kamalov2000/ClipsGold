@@ -73,7 +73,7 @@ async def render_single_clip_with_progress(
     cut_video_segment_enhanced_func,
     manual_crop_x: Optional[int] = None,
     show_hook: bool = True,
-    subtitle_style: str = "hormozi",
+    subtitle_style: str = "podcast",
     enable_jump_cut: bool = False,
     enable_sfx: bool = True,
     use_semantic_chunking: bool = True,

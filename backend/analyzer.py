@@ -56,7 +56,7 @@ HOOK QUALITY (pick the best match):
 
 ## CLIP RULES:
 - Length: minimum 30 seconds, maximum 90 seconds
-- No overlapping clips
+- CRITICAL: No overlapping clips — each clip's start_time must be strictly after the previous clip's end_time
 - Start at a natural sentence or pause boundary
 - End at a natural sentence ending or pause
 - Spread clips across the full video — do not cluster them at the start
@@ -411,8 +411,24 @@ class ClaudeAnalyzer:
                 "best_platform": str(clip.get("best_platform", "TikTok")),
             })
 
-        validated.sort(key=lambda x: x["virality_score"], reverse=True)
-        return validated[:max_clips]
+        # Sort by start_time for overlap detection
+        validated.sort(key=lambda x: x["start_time"])
+
+        # Remove clips that overlap the previous clip by more than 5 seconds
+        deduped: List[Dict] = []
+        for clip in validated:
+            if not deduped:
+                deduped.append(clip)
+                continue
+            prev_end = deduped[-1]["end_time"]
+            overlap = max(0.0, prev_end - clip["start_time"])
+            if overlap > 5.0:
+                print(f"  [OVERLAP] Dropped '{clip['title'][:30]}' (start={clip['start_time']:.1f}s, overlap={overlap:.1f}s)")
+                continue
+            deduped.append(clip)
+
+        deduped.sort(key=lambda x: x["virality_score"], reverse=True)
+        return deduped[:max_clips]
 
 
 # Backward-compatible alias — existing code that imports ViralClipAnalyzer still works

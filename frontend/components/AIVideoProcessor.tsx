@@ -225,7 +225,6 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
           setSegments(Array.isArray(tr.data.segments) ? tr.data.segments : [])
           setSubtitleEditDirty(false)
           finishTranscriptionUi()
-          await performAnalyze()
           return true
         }
         if (data.status === 'failed') {
