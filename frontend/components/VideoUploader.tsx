@@ -62,9 +62,6 @@ export default function VideoUploader({ onUploadSuccess }: VideoUploaderProps) {
 
     try {
       const response = await api.post('/upload', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
         onUploadProgress: (e) => {
           if (e.total) {
             setUploadProgress(Math.round((e.loaded * 100) / e.total))
