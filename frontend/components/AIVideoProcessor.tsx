@@ -75,6 +75,7 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
   const [renderedClips, setRenderedClips] = useState<ViralClip[]>([])
   const [downloadingClips, setDownloadingClips] = useState<Set<number>>(new Set())
   const [error, setError] = useState<string | null>(null)
+  const [analysisNotice, setAnalysisNotice] = useState<string | null>(null)
   const provider = 'claude'
   const [maxClips, setMaxClips] = useState<number>(5)
   const [targetPlatform, setTargetPlatform] = useState<'tiktok' | 'youtube' | 'instagram'>('tiktok')
@@ -167,6 +168,7 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
         `/analyze/${fileId}?provider=${provider}&max_clips=${maxClips}`
       )
       setCandidates(response.data.viral_clips)
+      setAnalysisNotice(response.data.notice || null)
 
       const initialCropX: {[key: number]: number} = {}
       response.data.viral_clips.forEach((candidate: Candidate, index: number) => {
@@ -772,6 +774,13 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {analysisNotice && (
+        <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-amber-800 text-sm">
+          <span className="mt-0.5 shrink-0">&#9432;</span>
+          <span>{analysisNotice}</span>
         </div>
       )}
 

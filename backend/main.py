@@ -1734,12 +1734,22 @@ async def analyze_video(
         with analysis_file.open("w", encoding="utf-8") as f:
             json.dump(viral_clips_with_thumbnails, f, ensure_ascii=False, indent=2)
         
-        print(f"[OK] Analysis complete: {len(viral_clips_with_thumbnails)} candidates stored for review")
-        
+        found = len(viral_clips_with_thumbnails)
+        print(f"[OK] Analysis complete: {found} candidates stored for review")
+
+        if found < max_clips:
+            notice = (
+                f"Найдено {found} из {max_clips} запрошенных клипов — "
+                f"видео слишком короткое, чтобы вырезать больше уникальных фрагментов."
+            )
+        else:
+            notice = None
+
         return {
             "viral_clips": viral_clips_with_thumbnails,
             "video_duration": video_duration,
-            "message": f"Analysis completed: {len(viral_clips_with_thumbnails)} candidates ready for review"
+            "message": f"Analysis completed: {found} candidates ready for review",
+            "notice": notice,
         }
     
     except Exception as e:

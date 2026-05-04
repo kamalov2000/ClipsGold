@@ -102,8 +102,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         return f"{hours}:{minutes:02d}:{secs:02d}.{centisecs:02d}"
     
     def escape_ass_text(self, text: str) -> str:
-        """Escape special ASS characters"""
+        """Escape special ASS characters and uppercase the text."""
         text = text.strip().lstrip('\u2014').lstrip('\u2013').lstrip('-').strip()
+        text = text.upper()
         text = text.replace('\\', '\\\\')
         text = text.replace('{', '\\{')
         text = text.replace('}', '\\}')
@@ -156,30 +157,42 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         
         # Build text with word-by-word highlighting
         text_parts = []
-        
+        word_count = 0
+
         for i, word_data in enumerate(chunk):
             word = self.escape_ass_text(word_data.get("word", "").strip())
             if not word:
                 continue
-            
+
             word_start = word_data.get("start", chunk_start)
             word_end = word_data.get("end", chunk_end)
-            
+
             word_start_adj = max(0, word_start - clip_start_time)
             word_end_adj = word_end - clip_start_time
-            
+
             start_ms = int((word_start_adj - adjusted_start) * 1000)
             end_ms = int((word_end_adj - adjusted_start) * 1000)
-            
+
+            # Insert line break after every 4 words (max 2 lines)
+            if word_count > 0 and word_count % 4 == 0 and word_count < 8:
+                text_parts.append("\\N")
+
             # Highlight current word with yellow + scaling
             if start_ms == 0:
-                # First word starts highlighted
                 text_parts.append(f"{{\\c&H0000FFFF&\\fscx110\\fscy110\\t({end_ms},{end_ms},\\c&H00FFFFFF&\\fscx100\\fscy100)}}{word}")
             else:
-                # Other words: white -> yellow -> white with scale
                 text_parts.append(f"{{\\c&H00FFFFFF&\\t({start_ms},{start_ms},\\c&H0000FFFF&\\fscx110\\fscy110)\\t({end_ms},{end_ms},\\c&H00FFFFFF&\\fscx100\\fscy100)}}{word}")
-        
-        subtitle_text = " ".join(text_parts)
+            word_count += 1
+
+        subtitle_text = " ".join(p for p in text_parts if p != "\\N")
+        # Re-join preserving \N breaks without extra spaces
+        subtitle_text = ""
+        for p in text_parts:
+            if p == "\\N":
+                subtitle_text = subtitle_text.rstrip(" ") + "\\N"
+            else:
+                subtitle_text += ("" if subtitle_text.endswith("\\N") else " ") + p
+        subtitle_text = subtitle_text.lstrip(" ")
         
         start_time = self.format_timestamp(adjusted_start)
         end_time = self.format_timestamp(adjusted_end)
@@ -206,11 +219,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if adjusted_end <= 0:
             return ""
 
-        words = " ".join(
+        word_list = [
             self.escape_ass_text(w.get("word", "").strip())
             for w in chunk
             if w.get("word", "").strip()
-        )
+        ]
+
+        # Split into lines of max 4 words (max 2 lines = 8 words)
+        word_list = word_list[:8]
+        line1 = " ".join(word_list[:4])
+        line2 = " ".join(word_list[4:])
+        words = (line1 + "\\N" + line2) if line2 else line1
 
         start_time = self.format_timestamp(adjusted_start)
         end_time = self.format_timestamp(adjusted_end)
@@ -389,7 +408,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             
             # PODCAST STYLE: static text, 6 words per phrase, no animation
             if subtitle_style == "podcast":
-                chunks = self.chunk_words(clip_words, max_words=6)
+                chunks = self.chunk_words(clip_words, max_words=8)
                 for chunk in chunks:
                     chunk_start = chunk[0].get("start", 0) if chunk else clip_start_time
                     chunk_end = chunk[-1].get("end", chunk_start + 1) if chunk else chunk_start + 1
