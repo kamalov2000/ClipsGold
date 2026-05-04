@@ -23,6 +23,17 @@ INITIAL_PROMPT_TERMS = (
     "работой, следах, рабский, рабство, милиция, милиции, советский, союза."
 )
 
+# OpenAI returns full language names; Whisper API requires ISO-639-1 codes
+_LANG_NAME_TO_ISO: dict = {
+    "russian": "ru", "english": "en", "spanish": "es", "french": "fr",
+    "german": "de", "italian": "it", "portuguese": "pt", "chinese": "zh",
+    "japanese": "ja", "korean": "ko", "arabic": "ar", "turkish": "tr",
+    "polish": "pl", "dutch": "nl", "swedish": "sv", "norwegian": "no",
+    "danish": "da", "finnish": "fi", "czech": "cs", "ukrainian": "uk",
+    "romanian": "ro", "hungarian": "hu", "greek": "el", "hebrew": "he",
+    "thai": "th", "vietnamese": "vi", "indonesian": "id", "hindi": "hi",
+}
+
 _WORD_CORRECTIONS = {
     "отдежда": "одежда",
     "отдежду": "одежду",
@@ -235,7 +246,8 @@ async def run_whisper_transcribe_async(
                 chunk_result = _parse_openai_response(response, time_offset=time_offset, seg_id_offset=seg_id_offset)
 
                 if not detected_lang:
-                    detected_lang = chunk_result.get("language", "")
+                    lang_raw = chunk_result.get("language", "")
+                    detected_lang = _LANG_NAME_TO_ISO.get(lang_raw.lower(), lang_raw)
 
                 all_text.append(chunk_result["text"].strip())
                 all_segments.extend(chunk_result["segments"])

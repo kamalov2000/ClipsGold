@@ -710,7 +710,7 @@ async def cut_video_segment_enhanced(
                 get_ffmpeg_path(),
                 "-ss", str(seg_start), "-t", str(seg_dur),
                 "-i", str(input_path),
-                "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-pix_fmt", "yuv420p", "-threads", "0",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-threads", "0",
                 "-c:a", "aac", "-b:a", "128k", "-y", str(seg_file)
             ]
             r = subprocess.run(cmd_seg, capture_output=True, text=True)
@@ -1043,7 +1043,7 @@ async def cut_video_segment_enhanced(
                 print(f"     • Audio: acompressor -> alimiter")
     
     # Common encoding settings
-    cmd_pass2.extend(["-c:v", "libx264", "-preset", "fast", "-crf", "18", "-threads", "0"])
+    cmd_pass2.extend(["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-threads", "0"])
     cmd_pass2.extend(["-c:a", "aac", "-b:a", "128k"])
     
     # Output specs for compatibility

@@ -5,6 +5,7 @@ Separated from main.py for cleaner code organization.
 
 from pathlib import Path
 from typing import Optional, List
+import asyncio
 import random
 import json
 from fastapi import HTTPException
@@ -12,6 +13,18 @@ from reframer import create_reframer
 from subtitle_generator_v2 import create_subtitle_generator
 from services.social_meta import generate_social_metadata
 from emoji_overlay import extract_emojis_from_metadata, create_multi_emoji_sequence
+
+
+async def _fire_social_metadata(clip_transcript: str, clip_title: str, platform: str, meta_path: Path) -> None:
+    try:
+        await generate_social_metadata(
+            clip_transcript=clip_transcript,
+            clip_title=clip_title,
+            platform=platform,
+            output_path=meta_path,
+        )
+    except Exception as e:
+        print(f"  [WARN] Social metadata generation failed: {e}")
 
 
 def _build_jump_cut_segments(
@@ -173,15 +186,11 @@ async def render_single_clip_with_progress(
     print(f"  -> Content hash: {content_hash} (clip={clip_index}, hook={show_hook})")
     print(f"  -> Filename: {clip_filename}")
     
-    # Initialize reframer and subtitle generator
-    reframer = create_reframer()
-    subtitle_gen = create_subtitle_generator()
-    
     # Get crop filter
     crop_filter = None
     crop_preview = clip.get("crop_preview")
-    
-    # Detect no-face mode: use blur background instead of smart crop
+
+    # Determine render mode before initializing MediaPipe (avoid init if not needed)
     _preview_mode = (crop_preview or {}).get("mode", "center_crop")
     _has_face = _preview_mode not in ("center_crop", None) and bool((crop_preview or {}).get("faces"))
     if render_mode == "blur_background":
@@ -190,6 +199,10 @@ async def render_single_clip_with_progress(
         _force_blur = False
     else:  # "auto"
         _force_blur = not _has_face and _preview_mode != "split_screen"
+
+    # Initialize reframer only when face-based cropping is needed (MediaPipe is slow to init)
+    reframer = None if _force_blur else create_reframer()
+    subtitle_gen = create_subtitle_generator()
 
     if _force_blur:
         print(f"  -> Blur background mode (render_mode={render_mode}, mode={_preview_mode})")
@@ -357,16 +370,12 @@ async def render_single_clip_with_progress(
         ).strip()
 
     meta_path = OUTPUT_DIR / f"{file_id}_clip_{clip_index + 1}_meta.json"
-    try:
-        meta = await generate_social_metadata(
-            clip_transcript=clip_transcript,
-            clip_title=clip.get("title", ""),
-            platform=platform,
-            output_path=meta_path,
-        )
-    except Exception as e:
-        print(f"  [WARN] Social metadata generation failed: {e}")
-        meta = {}
+    asyncio.create_task(_fire_social_metadata(
+        clip_transcript=clip_transcript,
+        clip_title=clip.get("title", ""),
+        platform=platform,
+        meta_path=meta_path,
+    ))
 
     return {
         "task_id": task_id,
@@ -374,5 +383,5 @@ async def render_single_clip_with_progress(
         "filename": clip_filename,
         "title": clip["title"],
         "status": "completed",
-        "meta": meta,
+        "meta": {},
     }
