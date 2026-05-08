@@ -20,7 +20,7 @@ export default function AuthForm({ onAuthSuccess }: AuthFormProps) {
     e.preventDefault()
     setError(null)
     if (mode === 'register' && password !== confirmPassword) {
-      setError('Passwords do not match.')
+      setError('Пароли не совпадают.')
       return
     }
     setLoading(true)
@@ -38,7 +38,13 @@ export default function AuthForm({ onAuthSuccess }: AuthFormProps) {
       }
     } catch (err: any) {
       const detail = err?.response?.data?.detail
-      setError(typeof detail === 'string' ? detail : mode === 'register' ? 'Registration failed. Try a different email.' : 'Invalid email or password.')
+      setError(
+        typeof detail === 'string'
+          ? detail
+          : mode === 'register'
+          ? 'Регистрация не удалась. Попробуйте другой email.'
+          : 'Неверный email или пароль.'
+      )
     } finally {
       setLoading(false)
     }
@@ -47,7 +53,7 @@ export default function AuthForm({ onAuthSuccess }: AuthFormProps) {
   return (
     <div className="max-w-sm mx-auto bg-white/10 backdrop-blur-sm rounded-2xl p-8 shadow-2xl border border-white/20">
       <h2 className="text-2xl font-bold text-white text-center mb-6">
-        {mode === 'login' ? 'Sign In' : 'Create Account'}
+        {mode === 'login' ? 'Войти' : 'Создать аккаунт'}
       </h2>
 
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -64,27 +70,27 @@ export default function AuthForm({ onAuthSuccess }: AuthFormProps) {
         </div>
 
         <div>
-          <label className="block text-sm text-gray-300 mb-1">Password</label>
+          <label className="block text-sm text-gray-300 mb-1">Пароль</label>
           <input
             type="password"
             required
             minLength={mode === 'register' ? 8 : undefined}
             value={password}
             onChange={e => setPassword(e.target.value)}
-            placeholder={mode === 'register' ? 'Min. 8 characters' : 'Password'}
+            placeholder={mode === 'register' ? 'Минимум 8 символов' : 'Пароль'}
             className="w-full px-4 py-2 rounded-lg bg-white/10 border border-white/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
           />
         </div>
 
         {mode === 'register' && (
           <div>
-            <label className="block text-sm text-gray-300 mb-1">Confirm Password</label>
+            <label className="block text-sm text-gray-300 mb-1">Повторите пароль</label>
             <input
               type="password"
               required
               value={confirmPassword}
               onChange={e => setConfirmPassword(e.target.value)}
-              placeholder="Repeat password"
+              placeholder="Повторите пароль"
               className="w-full px-4 py-2 rounded-lg bg-white/10 border border-white/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
             />
           </div>
@@ -99,14 +105,18 @@ export default function AuthForm({ onAuthSuccess }: AuthFormProps) {
           disabled={loading}
           className="w-full py-2.5 rounded-lg bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-semibold transition-colors"
         >
-          {loading ? 'Please wait…' : mode === 'login' ? 'Sign In' : 'Create Account'}
+          {loading
+            ? 'Подождите…'
+            : mode === 'login'
+            ? 'Войти'
+            : 'Зарегистрироваться'}
         </button>
       </form>
 
       <p className="text-center text-sm text-gray-400 mt-4">
         {mode === 'login' ? (
           <>
-            No account?{' '}
+            Нет аккаунта?{' '}
             <button
               onClick={() => { setMode('register'); setError(null); setConfirmPassword('') }}
               className="text-purple-400 hover:text-purple-300 font-medium underline"
@@ -116,12 +126,12 @@ export default function AuthForm({ onAuthSuccess }: AuthFormProps) {
           </>
         ) : (
           <>
-            Already have an account?{' '}
+            Уже есть аккаунт?{' '}
             <button
               onClick={() => { setMode('login'); setError(null); setConfirmPassword('') }}
               className="text-purple-400 hover:text-purple-300 font-medium underline"
             >
-              Sign In
+              Войти
             </button>
           </>
         )}

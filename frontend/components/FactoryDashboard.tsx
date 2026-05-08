@@ -54,8 +54,8 @@ export default function FactoryDashboard() {
       setDiscoveries(discoveriesRes.data.discoveries || [])
       setStats(statsRes.data)
       setSchedulerStatus(schedulerRes.data)
-    } catch (error) {
-      console.error('Failed to fetch dashboard data:', error)
+    } catch {
+      // silently retry on next interval
     } finally {
       setLoading(false)
     }

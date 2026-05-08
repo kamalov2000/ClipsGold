@@ -3,11 +3,11 @@ import { Inter } from 'next/font/google'
 import Link from 'next/link'
 import './globals.css'
 
-const inter = Inter({ subsets: ['latin'] })
+const inter = Inter({ subsets: ['latin', 'cyrillic'] })
 
 export const metadata: Metadata = {
-  title: 'ClipsGold',
-  description: 'AI-Powered Viral Clip Detection',
+  title: 'ClipsGold — ИИ-нарезка вирусных клипов',
+  description: 'Автоматическая нарезка вирусных клипов с помощью ИИ: Whisper + Claude. Загрузи видео — получи готовые шортсы.',
 }
 
 export default function RootLayout({
@@ -16,14 +16,14 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en">
+    <html lang="ru">
       <body className={inter.className}>
         <nav className="fixed top-0 left-0 right-0 z-50 bg-slate-900/80 backdrop-blur border-b border-white/10">
           <div className="max-w-7xl mx-auto px-4 h-12 flex items-center gap-6">
             <Link href="/" className="text-white font-bold text-lg tracking-tight">✂️ ClipsGold</Link>
-            <Link href="/" className="text-gray-400 hover:text-white text-sm transition-colors">Upload</Link>
+            <Link href="/" className="text-gray-400 hover:text-white text-sm transition-colors">Главная</Link>
             <Link href="/factory" className="text-gray-400 hover:text-white text-sm transition-colors flex items-center gap-1">
-              <span className="text-yellow-400">⚡</span> Factory
+              <span className="text-yellow-400">⚡</span> Фабрика
             </Link>
           </div>
         </nav>
