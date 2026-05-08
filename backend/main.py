@@ -984,7 +984,7 @@ async def cut_video_segment_enhanced(
             if rel_sub:
                 filter_complex = (
                     f"[0:v]split=2[fg_src][bg_src];"
-                    f"[bg_src]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:10[bg];"
+                    f"[bg_src]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,scale=270:480,boxblur=8:2,scale=1080:1920[bg];"
                     f"[fg_src]scale=1080:-1[fg];"
                     f"[bg][fg]overlay=(W-w)/2:(H-h)/2[pre_sub];"
                     f"[pre_sub]subtitles={rel_sub}[out]"
@@ -992,7 +992,7 @@ async def cut_video_segment_enhanced(
             else:
                 filter_complex = (
                     f"[0:v]split=2[fg_src][bg_src];"
-                    f"[bg_src]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:10[bg];"
+                    f"[bg_src]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,scale=270:480,boxblur=8:2,scale=1080:1920[bg];"
                     f"[fg_src]scale=1080:-1[fg];"
                     f"[bg][fg]overlay=(W-w)/2:(H-h)/2[out]"
                 )
