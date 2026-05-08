@@ -4,29 +4,16 @@
 # ──────────────────────────────────────────────────────────────
 
 scout:
-  # How often to run the scout (cron format: every 6 hours)
-  schedule_hours: 6
-
-  # Maximum videos to queue per scout run (per keyword)
-  max_per_keyword: 5
-
-  # Ignore videos shorter than this (seconds) — skip short ads/clips
-  min_video_length: 120      # 2 minutes
-
-  # Ignore videos longer than this (seconds) — avoid full movies
-  max_video_length: 7200     # 2 hours
-
-  # Minimum view count to consider (avoid low-quality content)
-  min_view_count: 50000
-
-  # Only accept videos uploaded within this many days
-  max_age_days: 90
-
-  # yt-dlp search results limit per query
-  search_results_per_query: 10
+  schedule_hours: 4            # run scout every 4 hours (was 6)
+  max_per_keyword: 8           # more videos per keyword (was 5)
+  min_video_length: 120        # 2 minutes minimum
+  max_video_length: 7200       # 2 hours maximum
+  min_view_count: 30000        # lowered from 50k to catch newer viral content
+  max_age_days: 120            # wider window (was 90 days)
+  search_results_per_query: 15 # more results per query (was 10)
 
 keywords:
-  # Each entry: { query, niche, language }
+  # ── Russian content ──────────────────────────────────────────
   - query: "бизнес подкаст нарезка"
     niche: "business"
     language: "ru"
@@ -43,6 +30,31 @@ keywords:
     niche: "motivation"
     language: "ru"
 
+  - query: "психология отношений советы"
+    niche: "psychology"
+    language: "ru"
+
+  - query: "финансы инвестиции советы"
+    niche: "finance"
+    language: "ru"
+
+  - query: "саморазвитие привычки лайфхаки"
+    niche: "self_development"
+    language: "ru"
+
+  - query: "продажи маркетинг секреты"
+    niche: "business"
+    language: "ru"
+
+  - query: "стартап история успеха"
+    niche: "entrepreneurship"
+    language: "ru"
+
+  - query: "лайфстайл влог вирусный момент"
+    niche: "lifestyle"
+    language: "ru"
+
+  # ── English content ──────────────────────────────────────────
   - query: "alex hormozi best moments"
     niche: "business"
     language: "en"
@@ -59,34 +71,48 @@ keywords:
     niche: "comedy"
     language: "en"
 
+  - query: "lex fridman best moments"
+    niche: "podcast"
+    language: "en"
+
+  - query: "david goggins motivation speech"
+    niche: "motivation"
+    language: "en"
+
+  - query: "mark cuban shark tank best moments"
+    niche: "business"
+    language: "en"
+
+  - query: "startup pitch best moments"
+    niche: "entrepreneurship"
+    language: "en"
+
+  - query: "self improvement advice viral"
+    niche: "self_development"
+    language: "en"
+
+  - query: "stand up comedy best clips 2024"
+    niche: "comedy"
+    language: "en"
+
+  - query: "gary vee best moments"
+    niche: "business"
+    language: "en"
+
+  - query: "jordan peterson best arguments"
+    niche: "psychology"
+    language: "en"
+
 processing:
-  # Auto-approve clips with viral_score >= this threshold (0–10)
-  auto_approve_threshold: 8.5
-
-  # Maximum clips to auto-render per video
+  auto_approve_threshold: 8.0   # slightly lower (was 8.5) to generate more clips
   max_clips_per_video: 5
-
-  # Delete original source video after all clips are rendered
   auto_cleanup_source: true
-
-  # Platform for auto-rendered clips
   default_platform: "tiktok"
-
-  # Subtitle style for auto-rendered clips
   default_subtitle_style: "hormozi"
-
-  # Maximum concurrent downloads
   max_concurrent_downloads: 2
-
-  # Maximum videos to process per factory cycle
   max_videos_per_cycle: 5
 
 notifications:
-  # Send Telegram message when a high-score clip is ready
   telegram_enabled: true
-
-  # Only notify for clips with score >= this
-  notify_threshold: 8.0
-
-  # Include rendered video file in message (requires small file size)
+  notify_threshold: 7.5         # lower threshold (was 8.0) to get more notifications
   send_video_preview: false

@@ -135,7 +135,8 @@ manager = ConnectionManager()
 
 RENDER_WORKERS = 2  # concurrent render workers
 render_queue: asyncio.Queue = asyncio.Queue()
-_active_renders: int = 0  # how many renders are currently running
+_active_renders: int = 0
+_active_renders_lock = asyncio.Lock()
 
 
 async def _render_worker():
@@ -144,7 +145,9 @@ async def _render_worker():
     while True:
         job = await render_queue.get()
         task_id = job["task_id"]
-        _active_renders += 1
+        async with _active_renders_lock:
+            global _active_renders
+            _active_renders += 1
         try:
             await manager.send_progress(task_id, {"status": "rendering_started"})
             result = await render_single_clip_with_progress(
@@ -186,7 +189,8 @@ async def _render_worker():
             traceback.print_exc()
             await manager.send_progress(task_id, {"status": "error", "error": err_msg})
         finally:
-            _active_renders -= 1
+            async with _active_renders_lock:
+                _active_renders -= 1
             render_queue.task_done()
 
 
@@ -1237,11 +1241,6 @@ class YouTubeDownloadRequest(BaseModel):
     url: str
 
 
-@app.get("/test-no-auth")
-async def test_no_auth():
-    """Test endpoint with absolutely no auth - for debugging"""
-    return {"status": "ok", "message": "Backend is working without auth!"}
-
 
 @app.post("/upload")
 async def upload_video(
@@ -1539,13 +1538,12 @@ async def download_file(
 
 
 @app.get("/clips/{filename}")
-async def download_clip(filename: str):
+@limiter.limit("120/hour")
+async def download_clip(request: Request, filename: str):
     """Serve rendered clip files for download"""
     clip_path = CLIPS_DIR / filename
-    
     if not clip_path.exists():
         raise HTTPException(status_code=404, detail="Clip not found")
-    
     return FileResponse(
         path=clip_path,
         filename=filename,
@@ -1554,13 +1552,12 @@ async def download_clip(filename: str):
 
 
 @app.get("/thumbnails/{filename}")
-async def get_thumbnail(filename: str):
+@limiter.limit("200/hour")
+async def get_thumbnail(request: Request, filename: str):
     """Serve thumbnail images for candidates"""
     thumbnail_path = THUMBNAILS_DIR / filename
-    
     if not thumbnail_path.exists():
         raise HTTPException(status_code=404, detail="Thumbnail not found")
-    
     return FileResponse(
         path=thumbnail_path,
         filename=filename,
@@ -2248,7 +2245,7 @@ async def render_clip_with_progress(
             "render_mode": request.render_mode,
         }
         print(f"  -> Queueing job with task_id={task_id}")
-        # Check before put: if all worker slots are busy, this job will wait
+        # Snapshot active count; under asyncio single-thread model this is safe at await boundary
         will_wait = _active_renders >= RENDER_WORKERS
         queue_position = render_queue.qsize() + 1 if will_wait else 0
         if will_wait:

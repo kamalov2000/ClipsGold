@@ -27,15 +27,13 @@ export default function AuthForm({ onAuthSuccess }: AuthFormProps) {
 
     try {
       if (mode === 'register') {
-        // Step 1: create account
         await axios.post(`${API_BASE}/auth/register`, { email, password })
-        // Step 2: auto-login with new credentials
         const resp = await axios.post(`${API_BASE}/auth/json-login`, { email, password })
-        saveToken(resp.data.access_token)
+        saveToken(resp.data.access_token, resp.data.refresh_token)
         onAuthSuccess()
       } else {
         const resp = await axios.post(`${API_BASE}/auth/json-login`, { email, password })
-        saveToken(resp.data.access_token)
+        saveToken(resp.data.access_token, resp.data.refresh_token)
         onAuthSuccess()
       }
     } catch (err: any) {

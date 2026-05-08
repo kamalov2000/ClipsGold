@@ -185,7 +185,7 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
       })
       setRenderModes(initialRenderModes)
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Analysis failed')
+      setError(err.response?.data?.detail || 'Ошибка анализа. Попробуйте снова.')
     } finally {
       setAnalyzing(false)
     }
@@ -200,7 +200,7 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
     try {
       await api.post(`/transcribe/${fileId}`)
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Transcription failed')
+      setError(err.response?.data?.detail || 'Транскрипция не удалась. Попробуйте снова.')
       finishTranscriptionUi()
       return
     }
@@ -310,7 +310,7 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
       setSegments(response.data.segments || segments)
       setSubtitleEditDirty(false)
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to save subtitles')
+      setError(err.response?.data?.detail || 'Не удалось сохранить субтитры.')
     } finally {
       setSavingSubtitles(false)
     }
@@ -365,25 +365,24 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
       )
       
       const taskId = response.data.task_id
-      const queuePosition = response.data.queue_position
-      console.log('Render queued, task_id:', taskId, 'queue_position:', queuePosition)
-      if (queuePosition > 1) {
+      const queuePosition = response.data.queue_position ?? 0
+      if (queuePosition > 0) {
         setRenderStatus(prev => ({ ...prev, [clipIndex]: `queued:${queuePosition}` }))
       }
-      
+
       // Connect to WebSocket for progress updates
       const ws = new WebSocket(`${WS_BASE}/ws/render-progress/${taskId}`)
       wsConnections.current[taskId] = ws
-      
+
       ws.onopen = () => {
-        console.log('WebSocket connected for task:', taskId)
-        setRenderStatus(prev => ({ ...prev, [clipIndex]: queuePosition > 1 ? `queued:${queuePosition}` : 'rendering' }))
+        if (queuePosition === 0) {
+          setRenderStatus(prev => ({ ...prev, [clipIndex]: 'rendering' }))
+        }
       }
-      
+
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data)
-        console.log('Progress update:', data)
-        
+
         if (data.status === 'queued') {
           setRenderStatus(prev => ({ ...prev, [clipIndex]: `queued:${data.position}` }))
         } else if (data.status === 'rendering_started') {
@@ -416,11 +415,9 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
             candidateIndex: clipIndex,
             downloadUrl: data.download_url || `/download-clip/${data.file_id}/${data.clip_id}`
           }])
-          // Store social metadata if returned
           if (data.meta && typeof data.meta === 'object') {
             setClipMeta(prev => ({ ...prev, [clipIndex]: data.meta }))
           } else {
-            // Fetch from backend as fallback
             api.get(`/clip-meta/${fileId}/${clipIndex + 1}`)
               .then(r => setClipMeta(prev => ({ ...prev, [clipIndex]: r.data })))
               .catch(() => {})
@@ -430,9 +427,8 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
             updated.delete(clipIndex)
             return updated
           })
-          // Keep WebSocket open for re-render / further commands; do not close
         } else if (data.status === 'error') {
-          setError(`Render failed: ${data.error}`)
+          setError(`Ошибка рендера: ${data.error}`)
           setRenderStatus(prev => ({ ...prev, [clipIndex]: 'error' }))
           ws.close()
           delete wsConnections.current[taskId]
@@ -443,28 +439,22 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
           })
         }
       }
-      
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error)
-        setError('WebSocket connection failed')
+
+      ws.onerror = () => {
+        setError('Потеряно соединение с сервером. Попробуйте снова.')
         setRenderStatus(prev => ({ ...prev, [clipIndex]: 'error' }))
-        
         setRenderingClips(prev => {
           const updated = new Set(prev)
           updated.delete(clipIndex)
           return updated
         })
       }
-      
-      ws.onclose = () => {
-        console.log('WebSocket closed for task:', taskId)
-      }
-      
+
+      ws.onclose = () => { /* intentional: WS stays open for re-render */ }
+
     } catch (err: any) {
-      console.error('Render error:', err)
-      setError(err.response?.data?.detail || `Failed to render clip ${clipIndex + 1}`)
+      setError(err.response?.data?.detail || `Ошибка рендера клипа ${clipIndex + 1}. Попробуйте снова.`)
       setRenderStatus(prev => ({ ...prev, [clipIndex]: 'error' }))
-      
       setRenderingClips(prev => {
         const updated = new Set(prev)
         updated.delete(clipIndex)
@@ -517,9 +507,7 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
   const handleCleanupAndReset = async () => {
     try {
       await api.delete(`/cleanup/${fileId}`)
-    } catch (err) {
-      console.error('Cleanup failed:', err)
-    }
+    } catch {}
     onReset()
   }
 
@@ -562,9 +550,7 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
       await navigator.clipboard.writeText(fullText)
       setCopiedIndex(index)
       setTimeout(() => setCopiedIndex(null), 2000)
-    } catch (err) {
-      console.error('Failed to copy:', err)
-    }
+    } catch {}
   }
 
   return (
