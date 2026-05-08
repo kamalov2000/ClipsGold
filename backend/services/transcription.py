@@ -218,59 +218,70 @@ async def run_whisper_transcribe_async(
         print(f"[transcription] Done | lang={result.get('language')} | segments={len(result.get('segments', []))}")
         return result, skipped_chunks
 
-    # Long file — split into chunks
+    # Long file — split into chunks, process in PARALLEL
     print(f"[transcription] File > {_CHUNK_SECONDS}s — splitting into chunks")
     tmpdir = tempfile.mkdtemp(prefix="cg_whisper_chunks_")
     try:
         chunks = await asyncio.to_thread(_split_audio, path, _CHUNK_SECONDS, tmpdir)
         n = len(chunks)
+        print(f"[transcription] Sending {n} chunks to Whisper API in parallel...")
+        await _notify(0, n)
+
+        # Cap parallel requests to avoid rate limit bursts
+        _sem = asyncio.Semaphore(4)
+        done_count = 0
+
+        async def _do_chunk(idx: int, chunk_path: Path, time_offset: float):
+            nonlocal done_count
+            async with _sem:
+                try:
+                    response = await _transcribe_chunk(client, chunk_path, initial_prompt=prompt)
+                    parsed = _parse_openai_response(response, time_offset=time_offset, seg_id_offset=0)
+                    done_count += 1
+                    await _notify(done_count, n)
+                    return idx, parsed, None
+                except Exception as e:
+                    done_count += 1
+                    await _notify(done_count, n)
+                    return idx, None, str(e)
+
+        raw = await asyncio.gather(*[
+            _do_chunk(i, cp, to) for i, (cp, to) in enumerate(chunks)
+        ])
+        # Sort by original chunk order
+        raw = sorted(raw, key=lambda x: x[0])
+
         all_text: List[str] = []
         all_segments: List = []
         detected_lang = ""
         seg_id_offset = 0
-        last_text = ""  # tail of previous chunk fed as context to next
 
-        await _notify(0, n)
-        for i, (chunk_path, time_offset) in enumerate(chunks):
-            # Reuse detected language for chunks 2+ (faster + consistent)
-            lang_hint = detected_lang if detected_lang else None
-            # Context prompt: previous chunk tail > domain prompt
-            chunk_prompt = last_text[-200:] if last_text else prompt
-
-            try:
-                response = await _transcribe_chunk(
-                    client, chunk_path,
-                    language=lang_hint,
-                    initial_prompt=chunk_prompt,
-                )
-                chunk_result = _parse_openai_response(response, time_offset=time_offset, seg_id_offset=seg_id_offset)
-
-                if not detected_lang:
-                    lang_raw = chunk_result.get("language", "")
-                    detected_lang = _LANG_NAME_TO_ISO.get(lang_raw.lower(), lang_raw)
-
-                all_text.append(chunk_result["text"].strip())
-                all_segments.extend(chunk_result["segments"])
-                seg_id_offset += len(chunk_result["segments"])
-                last_text = chunk_result["text"]
-
-            except Exception as e:
-                errmsg = str(e)
-                print(f"[transcription] Chunk {i} failed: {errmsg}")
-                skipped_chunks.append({"chunk_index": i, "error": errmsg})
+        for idx, chunk_result, err in raw:
+            _, time_offset = chunks[idx]
+            if err:
+                print(f"[transcription] Chunk {idx} failed: {err}")
+                skipped_chunks.append({"chunk_index": idx, "error": err})
                 placeholder = {
                     "id":    seg_id_offset,
                     "start": round(time_offset, 3),
                     "end":   round(time_offset + _CHUNK_SECONDS, 3),
-                    "text":  f"[Не расшифровано — фрагмент {i+1}: {errmsg}]",
+                    "text":  f"[Не расшифровано — фрагмент {idx+1}: {err}]",
                     "words": [],
                     "_chunk_skipped": True,
                 }
                 all_segments.append(placeholder)
                 all_text.append(placeholder["text"])
                 seg_id_offset += 1
-
-            await _notify(i + 1, n)
+            else:
+                if not detected_lang:
+                    lang_raw = chunk_result.get("language", "")
+                    detected_lang = _LANG_NAME_TO_ISO.get(lang_raw.lower(), lang_raw)
+                # Fix segment IDs for merged result
+                for seg in chunk_result["segments"]:
+                    seg["id"] += seg_id_offset
+                all_text.append(chunk_result["text"].strip())
+                all_segments.extend(chunk_result["segments"])
+                seg_id_offset += len(chunk_result["segments"])
 
         result = {"text": " ".join(all_text), "language": detected_lang, "segments": all_segments}
         print(f"[transcription] Merged {len(all_segments)} segs | lang={detected_lang} | skipped={len(skipped_chunks)}")
