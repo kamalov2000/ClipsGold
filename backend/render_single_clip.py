@@ -6,10 +6,8 @@ Separated from main.py for cleaner code organization.
 from pathlib import Path
 from typing import Optional, List
 import asyncio
-import random
 import json
 from fastapi import HTTPException
-from reframer import create_reframer
 from subtitle_generator_v2 import create_subtitle_generator
 from services.social_meta import generate_social_metadata
 from emoji_overlay import extract_emojis_from_metadata, create_multi_emoji_sequence
@@ -190,41 +188,34 @@ async def render_single_clip_with_progress(
     crop_filter = None
     crop_preview = clip.get("crop_preview")
 
-    # Determine render mode before initializing MediaPipe (avoid init if not needed)
-    _preview_mode = (crop_preview or {}).get("mode", "center_crop")
-    _has_face = _preview_mode not in ("center_crop", None) and bool((crop_preview or {}).get("faces"))
-    if render_mode == "blur_background":
-        _force_blur = True
-    elif render_mode == "face_crop":
-        _force_blur = False
-    else:  # "auto"
-        _force_blur = not _has_face and _preview_mode != "split_screen"
-
-    # Initialize reframer only when face-based cropping is needed (MediaPipe is slow to init)
-    reframer = None if _force_blur else create_reframer()
+    # Two render modes only: blur_background (full frame + blur) or interview (dynamic face crop)
+    _force_blur = render_mode == "blur_background"
     subtitle_gen = create_subtitle_generator()
+    video_info = None
 
     if _force_blur:
-        print(f"  -> Blur background mode (render_mode={render_mode}, mode={_preview_mode})")
-    elif reframer:
-        try:
-            crop_filter = reframer.get_crop_filter(
-                input_file,
-                clip["start_time"],
-                clip["end_time"],
-                crop_preview=crop_preview
-            )
-        except Exception as e:
-            print(f"Reframing failed: {e}")
+        print("  -> Blur background mode")
     
-    # Get video info
-    video_info = None
-    if reframer:
+    # Interview mode: dynamic speaker crop (overrides standard crop_filter)
+    is_interview_mode = False
+    if render_mode == "interview" and not _force_blur:
+        from services.interview_reframer import create_interview_reframer
+        print("  -> INTERVIEW MODE: Analyzing speaker timeline...")
+        _irf = create_interview_reframer()
         try:
-            video_info = reframer.get_video_info(input_file)
+            _ia = _irf.analyze(input_file, clip["start_time"], clip["end_time"])
+            _if = _irf.generate_filter_complex(_ia)
+            if _if:
+                is_interview_mode = True
+                crop_filter = _if
+                print(f"  -> Interview: mode={_ia.mode}, segments={len(_ia.segments)}")
+            else:
+                print("  -> Interview filter generation failed, using standard crop")
         except Exception as e:
-            print(f"[WARN] Could not get video info: {e}")
-    
+            print(f"  [WARN] Interview mode failed: {e}")
+        finally:
+            _irf.close()
+
     # Generate subtitles
     subtitle_path = None
     if subtitle_gen and transcription_data:
@@ -253,50 +244,9 @@ async def render_single_clip_with_progress(
         except Exception as e:
             print(f"[FAIL] Subtitle generation failed: {e}")
     
-    # Determine split screen mode
-    is_split_screen_mode = crop_preview and crop_preview.get("mode") == "split_screen" if crop_preview else False
+    is_split_screen_mode = False
     letterbox_with_blur = _force_blur
-    
-    # Get random background video for satisfying split-screen mode
     background_video_path = None
-    if is_split_screen_mode:
-        # Try to get background video from assets/background_videos
-        background_videos_dir = Path(__file__).parent / "assets" / "background_videos"
-        if background_videos_dir.exists():
-            video_files = list(background_videos_dir.glob("*.mp4"))
-            if video_files:
-                background_video_path = random.choice(video_files)
-                print(f"  -> Background video selected: {background_video_path.name}")
-                
-                # Update crop_filter to use satisfying split-screen format
-                # Get primary face from crop_preview
-                if crop_preview and crop_preview.get("faces"):
-                    faces = crop_preview["faces"]
-                    primary_face = faces[0] if faces else None
-                    
-                    if primary_face and reframer:
-                        # Calculate clip duration
-                        clip_duration = clip["end_time"] - clip["start_time"]
-                        
-                        # Get video dimensions
-                        video_width = crop_preview.get("video_width", 1920)
-                        video_height = crop_preview.get("video_height", 1080)
-                        
-                        # Create satisfying split-screen filter
-                        crop_filter = reframer.create_satisfying_split_screen_filter(
-                            video_width,
-                            video_height,
-                            primary_face,
-                            str(background_video_path),
-                            clip_duration
-                        )
-                        print(f"  -> Using satisfying split-screen filter (top 50% speaker + bottom 50% background)")
-            else:
-                print(f"  -> No background videos found in assets/background_videos/ — falling back to letterbox+blur")
-                is_split_screen_mode = False
-                background_video_path = None
-                crop_filter = None
-                letterbox_with_blur = True
     
     # ── Step 8: Smart Jump-Cut ──────────────────────────────────────────
     jump_cut_segments = None
@@ -332,7 +282,8 @@ async def render_single_clip_with_progress(
     print(f"  -> Task ID: {task_id}")
     print(f"  -> Platform: {platform}")
     print(f"  -> Style: {subtitle_style}")
-    print(f"  -> Mode: {'[!] SATISFYING SPLIT SCREEN' if (is_split_screen_mode and background_video_path) else '[!] SPLIT SCREEN' if is_split_screen_mode else '📦 LETTERBOX+BLUR' if letterbox_with_blur else 'STANDARD'}")
+    _mode_label = "[!] INTERVIEW" if is_interview_mode else "LETTERBOX+BLUR" if letterbox_with_blur else "STANDARD"
+    print(f"  -> Mode: {_mode_label}")
 
     # Render with progress tracking
     await cut_video_segment_enhanced_func(
@@ -352,13 +303,10 @@ async def render_single_clip_with_progress(
         sfx_path=sfx_path,
         jump_cut_segments=jump_cut_segments,
         emoji_sequence=emoji_sequence,
+        is_interview_mode=is_interview_mode,
     )
 
     print(f"[OK] Clip {clip_index + 1} rendered successfully: {clip_filename}")
-
-    # Cleanup reframer
-    if reframer:
-        reframer.close()
 
     # ── Step 6: Social Metadata Generator ───────────────────────────────
     clip_transcript = ""

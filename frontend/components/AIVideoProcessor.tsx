@@ -95,8 +95,8 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
   // Subtitle language per clip
   const [subtitleLanguages, setSubtitleLanguages] = useState<{[key: number]: string}>({})
 
-  // Render mode per clip: 'face_crop' | 'blur_background'
-  const [renderModes, setRenderModes] = useState<{[key: number]: 'face_crop' | 'blur_background'}>({})
+  // Render mode per clip: 'blur_background' (default) | 'interview'
+  const [renderModes, setRenderModes] = useState<{[key: number]: 'blur_background' | 'interview'}>({})
 
   // Jump-cut toggle (global)
   const [enableJumpCut, setEnableJumpCut] = useState(false)
@@ -179,11 +179,9 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
       setOriginalCropX(initialCropX)
       setManualCropX({})
 
-      const initialRenderModes: {[key: number]: 'face_crop' | 'blur_background'} = {}
-      response.data.viral_clips.forEach((candidate: Candidate, index: number) => {
-        const mode = candidate.crop_preview?.mode
-        const hasFace = mode === 'single_face' || mode === 'group_face' || mode === 'split_screen'
-        initialRenderModes[index] = hasFace ? 'face_crop' : 'blur_background'
+      const initialRenderModes: {[key: number]: 'blur_background' | 'interview'} = {}
+      response.data.viral_clips.forEach((_: Candidate, index: number) => {
+        initialRenderModes[index] = 'blur_background'
       })
       setRenderModes(initialRenderModes)
     } catch (err: any) {
@@ -362,7 +360,7 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
           subtitle_language: subtitleLanguages[clipIndex] || 'auto',
           enable_jump_cut: enableJumpCut,
           enable_sfx: false,
-          render_mode: renderModes[clipIndex] ?? 'auto',
+          render_mode: renderModes[clipIndex] ?? 'blur_background',
         }
       )
       
@@ -955,28 +953,28 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
                       </div>
                     )}
                     
-                    {/* Render Mode Toggle */}
+                    {/* Render Mode Toggle: two modes only */}
                     <div className="mb-3 flex items-center gap-2 flex-wrap">
-                      <span className="text-xs font-semibold text-gray-500">Режим рендера:</span>
-                      <button
-                        onClick={() => setRenderModes(prev => ({ ...prev, [index]: 'face_crop' }))}
-                        className={`px-3 py-1 text-xs rounded-lg font-medium border transition-colors ${
-                          (renderModes[index] ?? 'face_crop') === 'face_crop'
-                            ? 'bg-purple-600 text-white border-purple-600'
-                            : 'bg-white text-gray-600 border-gray-300 hover:border-purple-400'
-                        }`}
-                      >
-                        ✂ Кроп лица
-                      </button>
+                      <span className="text-xs font-semibold text-gray-500">Режим:</span>
                       <button
                         onClick={() => setRenderModes(prev => ({ ...prev, [index]: 'blur_background' }))}
                         className={`px-3 py-1 text-xs rounded-lg font-medium border transition-colors ${
-                          (renderModes[index] ?? 'face_crop') === 'blur_background'
+                          (renderModes[index] ?? 'blur_background') === 'blur_background'
                             ? 'bg-purple-600 text-white border-purple-600'
                             : 'bg-white text-gray-600 border-gray-300 hover:border-purple-400'
                         }`}
                       >
                         ⬜ Весь кадр
+                      </button>
+                      <button
+                        onClick={() => setRenderModes(prev => ({ ...prev, [index]: 'interview' }))}
+                        className={`px-3 py-1 text-xs rounded-lg font-medium border transition-colors ${
+                          (renderModes[index] ?? 'blur_background') === 'interview'
+                            ? 'bg-purple-600 text-white border-purple-600'
+                            : 'bg-white text-gray-600 border-gray-300 hover:border-purple-400'
+                        }`}
+                      >
+                        ✂ Кроп лица
                       </button>
                     </div>
 
