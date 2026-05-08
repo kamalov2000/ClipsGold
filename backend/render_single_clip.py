@@ -4,13 +4,48 @@ Separated from main.py for cleaner code organization.
 """
 
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Tuple
 import asyncio
 import json
+import subprocess
 from fastapi import HTTPException
 from subtitle_generator_v2 import create_subtitle_generator
 from services.social_meta import generate_social_metadata
 from emoji_overlay import extract_emojis_from_metadata, create_multi_emoji_sequence
+
+
+def get_face_crop_window(
+    source_width: int, source_height: int, face_x_center: float
+) -> Tuple[int, int, int]:
+    """
+    Compute a 9:16 crop window centered on a face, no zoom.
+    Returns (x_offset, crop_width, crop_height).
+    """
+    crop_width = int(source_height * 9 / 16)
+    if crop_width % 2 == 1:
+        crop_width += 1  # libx264 requires even dimensions
+    crop_height = source_height
+    x_offset = int(face_x_center - crop_width / 2)
+    x_offset = max(0, min(x_offset, source_width - crop_width))
+    x_offset = (x_offset // 2) * 2
+    return x_offset, crop_width, crop_height
+
+
+def _probe_source_dimensions(input_file: Path) -> Tuple[Optional[int], Optional[int]]:
+    """Return (width, height) via ffprobe, or (None, None) on failure."""
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe", "-v", "error", "-select_streams", "v:0",
+                "-show_entries", "stream=width,height", "-of", "csv=p=0",
+                str(input_file),
+            ],
+            capture_output=True, text=True, timeout=15,
+        )
+        parts = result.stdout.strip().split(",")
+        return int(parts[0]), int(parts[1])
+    except Exception:
+        return None, None
 
 
 async def _fire_social_metadata(clip_transcript: str, clip_title: str, platform: str, meta_path: Path) -> None:
@@ -193,17 +228,37 @@ async def render_single_clip_with_progress(
     subtitle_gen = create_subtitle_generator()
     video_info = None
 
+    # Probe source resolution once (validation + smart pan math)
+    _src_w, _src_h = _probe_source_dimensions(input_file)
+
     if _force_blur:
         print("  -> Blur background mode")
-    
-    # Interview mode: dynamic speaker crop (overrides standard crop_filter)
+
+    # Interview mode: dynamic two-speaker smart pan (overrides standard crop_filter)
     is_interview_mode = False
     if render_mode == "interview" and not _force_blur:
         from services.interview_reframer import create_interview_reframer
-        print("  -> INTERVIEW MODE: Analyzing speaker timeline...")
+        print("  -> INTERVIEW MODE: Smart pan speaker crop...")
+
+        # Reject sources below 1080p — smart pan requires at minimum 1080p height
+        if _src_h is not None and _src_h < 1080:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Режим «Кроп лица» требует источник не ниже 1080p. "
+                    f"Текущее разрешение: {_src_w}×{_src_h}"
+                ),
+            )
+
         _irf = create_interview_reframer()
         try:
-            _ia = _irf.analyze(input_file, clip["start_time"], clip["end_time"])
+            _trans_segs = (transcription_data or {}).get("segments", [])
+            _ia = _irf.analyze(
+                input_file,
+                clip["start_time"],
+                clip["end_time"],
+                transcription_segments=_trans_segs,
+            )
             _if = _irf.generate_filter_complex(_ia)
             if _if:
                 is_interview_mode = True
@@ -215,6 +270,14 @@ async def render_single_clip_with_progress(
             print(f"  [WARN] Interview mode failed: {e}")
         finally:
             _irf.close()
+
+    # Auto mode: smart pan using face center from crop_preview
+    if not is_interview_mode and not _force_blur and crop_preview and "crop_x" in crop_preview:
+        if _src_w and _src_h and _src_h >= 1080:
+            face_cx = crop_preview["crop_x"] + crop_preview["crop_width"] / 2
+            x_off, cw, ch = get_face_crop_window(_src_w, _src_h, face_cx)
+            crop_filter = f"crop={cw}:{ch}:{x_off}:0"
+            print(f"  -> Smart pan: face_cx={face_cx:.0f}, window={cw}×{ch} @ x={x_off}")
 
     # Generate subtitles
     subtitle_path = None
@@ -332,4 +395,6 @@ async def render_single_clip_with_progress(
         "title": clip["title"],
         "status": "completed",
         "meta": {},
+        "source_width": _src_w,
+        "source_height": _src_h,
     }

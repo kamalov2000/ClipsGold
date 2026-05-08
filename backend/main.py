@@ -50,6 +50,7 @@ from db.models import (
 )
 from routers.auth import router as auth_router
 from routers.factory import router as factory_router
+from services.telegram_bot import notify_render_complete
 
 configure_logging()
 log = get_logger(__name__)
@@ -181,7 +182,18 @@ async def _render_worker():
                 "clip_id": result["clip_id"],
                 "filename": result["filename"],
                 "title": result.get("title", ""),
+                "source_width": result.get("source_width"),
+                "source_height": result.get("source_height"),
             })
+            # Telegram notification (best-effort, runs in thread pool)
+            asyncio.get_event_loop().run_in_executor(
+                None,
+                notify_render_complete,
+                result.get("title", ""),
+                CLIPS_DIR / result["filename"],
+                result.get("source_width"),
+                result.get("source_height"),
+            )
         except Exception as e:
             import traceback
             err_msg = str(e) or repr(e) or type(e).__name__
@@ -1281,7 +1293,7 @@ def _run_yt_dlp_download(url: str, output_path: Path) -> dict:
     validate_resolved_ip("www.youtube.com")
 
     ydl_opts = {
-        'format': 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best',
+        'format': 'bestvideo[height>=2160][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height>=1440][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height>=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best',
         'outtmpl': str(output_path),
         'merge_output_format': 'mp4',
         'quiet': False,

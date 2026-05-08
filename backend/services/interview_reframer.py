@@ -1,16 +1,13 @@
 """
-Interview reframer: dynamic two-speaker face crop for 9:16 output.
+Interview reframer: smart-pan two-speaker crop for 9:16 output.
 
 Pipeline:
-  1. Sample frames every SAMPLE_INTERVAL_S seconds via OpenCV
-  2. Detect all faces with MediaPipe Face Detection (blaze_face_short_range)
-  3. Cluster faces into two tracks: face_0 = left speaker, face_1 = right speaker
-  4. Detect active speaker by comparing mouth-region pixel motion between frames
-  5. Build + smooth speaker timeline (min MIN_SEGMENT_SECS per segment)
-  6. Generate FFmpeg filter_complex: split -> trim -> crop -> concat
+  1. Sample frames to find two face horizontal positions (left / right speaker)
+  2. Use transcription segment boundaries for speaker-alternation timing
+  3. Generate FFmpeg filter_complex: split -> trim -> crop -> concat
 
-Server constraint: 2 GB RAM / 1 CPU — no PyTorch / pyannote.audio.
-Requires only mediapipe (already in requirements.txt).
+No zoom, no mouth-motion detection — pure horizontal pan + lanczos scale.
+Server constraint: 2 GB RAM / 1 CPU.
 """
 from __future__ import annotations
 
@@ -23,14 +20,33 @@ from typing import Dict, List, Optional, Tuple
 
 warnings.filterwarnings("ignore", category=UserWarning, module="mediapipe")
 
-SAMPLE_INTERVAL_S: float = 0.5   # analyze one frame every N seconds
-MIN_SEGMENT_SECS: float = 1.5    # minimum speaker segment (prevents rapid jitter)
+SAMPLE_INTERVAL_S: float = 0.5   # one frame every N seconds for face detection
+MIN_SEGMENT_SECS: float = 1.5    # minimum speaker segment length (prevents jitter)
 TWO_FACE_MIN_FRAMES: int = 3     # frames with 2 detected faces required for dynamic mode
 
 MODEL_PATH = Path(__file__).parent.parent / "models" / "blaze_face_short_range.tflite"
 
 
-# ── Data classes ────────────────────────────────────────────────────────────
+# ── Shared math ──────────────────────────────────────────────────────────────
+
+def get_face_crop_window(
+    source_width: int, source_height: int, face_x_center: float
+) -> Tuple[int, int, int]:
+    """
+    Compute 9:16 crop window shifted horizontally to center on a face.
+    Returns (x_offset, crop_width, crop_height). No zoom.
+    """
+    crop_width = int(source_height * 9 / 16)
+    if crop_width % 2 == 1:
+        crop_width += 1  # libx264 requires even dimensions
+    crop_height = source_height
+    x_offset = int(face_x_center - crop_width / 2)
+    x_offset = max(0, min(x_offset, source_width - crop_width))
+    x_offset = (x_offset // 2) * 2
+    return x_offset, crop_width, crop_height
+
+
+# ── Data classes ─────────────────────────────────────────────────────────────
 
 @dataclass
 class FaceInfo:
@@ -42,18 +58,6 @@ class FaceInfo:
     @property
     def cx(self) -> int:
         return self.x + self.w // 2
-
-    @property
-    def cy(self) -> int:
-        return self.y + self.h // 2
-
-    def mouth_roi(self, frame_h: int, frame_w: int) -> Tuple[int, int, int, int]:
-        """Returns (y1, y2, x1, x2) of the mouth region."""
-        y1 = max(0, self.y + int(self.h * 0.60))
-        y2 = min(frame_h - 1, self.y + int(self.h * 0.85))
-        x1 = max(0, self.x + int(self.w * 0.20))
-        x2 = min(frame_w - 1, self.x + int(self.w * 0.80))
-        return (y1, y2, x1, x2)
 
 
 @dataclass
@@ -67,13 +71,14 @@ class SpeakerSegment:
 class InterviewAnalysis:
     mode: str       # "dynamic_two" | "single" | "fallback"
     segments: List[SpeakerSegment]
-    face_crops: Dict[int, Tuple[int, int, int, int]]  # face_id -> (cx, cy, cw, ch)
+    # face_id -> (crop_x, crop_y, crop_w, crop_h) in source pixels
+    face_crops: Dict[int, Tuple[int, int, int, int]]
     video_width: int
     video_height: int
     clip_duration: float
 
 
-# ── Core class ──────────────────────────────────────────────────────────────
+# ── Core class ───────────────────────────────────────────────────────────────
 
 class InterviewReframer:
 
@@ -100,7 +105,7 @@ class InterviewReframer:
         except Exception as e:
             print(f"[interview] Detector init failed: {e}")
 
-    # ── Detection helpers ────────────────────────────────────────────────
+    # ── Detection ────────────────────────────────────────────────
 
     def _detect(self, rgb: np.ndarray) -> List[FaceInfo]:
         if self._detector is None:
@@ -120,60 +125,31 @@ class InterviewReframer:
         except Exception:
             return []
 
-    @staticmethod
-    def _mouth_motion(
-        prev_gray: np.ndarray,
-        curr_gray: np.ndarray,
-        face: FaceInfo,
-        fh: int,
-        fw: int,
-    ) -> float:
-        """Mean absolute difference in face's mouth region between two grayscale frames."""
-        y1, y2, x1, x2 = face.mouth_roi(fh, fw)
-        if y2 <= y1 or x2 <= x1:
-            return 0.0
-        roi_p = prev_gray[y1:y2, x1:x2]
-        roi_c = curr_gray[y1:y2, x1:x2]
-        if roi_p.shape != roi_c.shape or roi_p.size == 0:
-            return 0.0
-        return float(np.mean(cv2.absdiff(roi_p, roi_c)))
-
-    @staticmethod
-    def _calc_crop(face: FaceInfo, vw: int, vh: int) -> Tuple[int, int, int, int]:
-        """9:16 crop centered on face. Returns (crop_x, crop_y, crop_w, crop_h)."""
-        cw = int(vh * 9 / 16)
-        ch = vh
-        if cw > vw:
-            cw = vw
-            ch = int(vw * 16 / 9)
-        # Enforce minimum crop size — prevents over-zoom on small sources
-        cw = max(cw, min(720, vw))
-        ch = max(ch, min(1280, vh))
-        # Center face horizontally; face center at 50% height (less aggressive zoom)
-        cx = face.cx - cw // 2
-        cy = face.cy - ch // 2
-        cx = max(0, min(cx, vw - cw))
-        cy = max(0, min(cy, vh - ch))
-        # even values required by libx264
-        return ((cx // 2) * 2, (cy // 2) * 2, (cw // 2) * 2, (ch // 2) * 2)
-
     def _assign_face_id(self, face: FaceInfo, canonical: Dict[int, float]) -> int:
-        """Match face to nearest canonical speaker by horizontal position."""
         if not canonical:
             return 0
         return min(canonical, key=lambda fid: abs(face.cx - canonical[fid]))
 
-    # ── Analysis ─────────────────────────────────────────────────────────
+    # ── Crop calculation ─────────────────────────────────────────
+
+    @staticmethod
+    def _face_crop(face_cx: int, vw: int, vh: int) -> Tuple[int, int, int, int]:
+        """Smart pan: 9:16 window shifted to face center. Returns (cx, cy, cw, ch)."""
+        x_off, cw, ch = get_face_crop_window(vw, vh, face_cx)
+        return x_off, 0, cw, ch
+
+    # ── Analysis ─────────────────────────────────────────────────
 
     def analyze(
         self,
         video_path: Path,
         start_time: float,
         end_time: float,
+        transcription_segments: Optional[List[dict]] = None,
     ) -> InterviewAnalysis:
         """
-        Analyze clip to build a speaker timeline.
-        Returns InterviewAnalysis describing mode, segments, and per-speaker crop coords.
+        Find face positions and build a speaker timeline from transcription segments.
+        Falls back to even split when no transcription is provided.
         """
         cap = cv2.VideoCapture(str(video_path))
         if not cap.isOpened():
@@ -190,34 +166,24 @@ class InterviewReframer:
         frame_end = min(int(end_time * fps), total_frames)
         cap.set(cv2.CAP_PROP_POS_FRAMES, frame_start)
 
-        # canonical_x: face_id -> established center_x (set on first two-face frame)
         canonical_x: Dict[int, float] = {}
         face_sightings: Dict[int, List[FaceInfo]] = {0: [], 1: []}
-        samples: List[Tuple[float, int]] = []   # (rel_time, active_face_id)
         two_face_count = 0
-
-        prev_gray: Optional[np.ndarray] = None
         fi = frame_start
 
         while fi < frame_end:
             ret, frame = cap.read()
             if not ret:
                 break
-
             if (fi - frame_start) % step == 0:
-                rel_t = (fi - frame_start) / fps
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
                 raw_faces = self._detect(rgb)
                 sorted_by_x = sorted(raw_faces, key=lambda f: f.cx)
 
-                # Establish canonical left/right positions from first two-face frame
                 if len(sorted_by_x) >= 2 and not canonical_x:
                     canonical_x[0] = float(sorted_by_x[0].cx)
                     canonical_x[1] = float(sorted_by_x[-1].cx)
 
-                # Assign face IDs to detected faces
                 clustered: Dict[int, FaceInfo] = {}
                 for face in sorted_by_x[:2]:
                     fid = self._assign_face_id(face, canonical_x)
@@ -227,101 +193,57 @@ class InterviewReframer:
 
                 if len(clustered) >= 2:
                     two_face_count += 1
-
-                # Active speaker = face with most mouth motion since last sample
-                active_id = -1
-                if prev_gray is not None and len(clustered) >= 2:
-                    scores = {
-                        fid: self._mouth_motion(prev_gray, gray, face, vh, vw)
-                        for fid, face in clustered.items()
-                    }
-                    active_id = max(scores, key=scores.__getitem__)
-                elif len(clustered) == 1:
-                    active_id = next(iter(clustered))
-
-                samples.append((rel_t, active_id))
-                prev_gray = gray
-
             fi += 1
 
         cap.release()
 
-        if not samples:
-            return _fallback(clip_dur)
-
-        # Build stable crop for each face using median position across all sightings
+        # Build stable face positions from median across all sightings
         face_crops: Dict[int, Tuple[int, int, int, int]] = {}
         for fid in [0, 1]:
             sightings = face_sightings[fid]
             if not sightings:
                 continue
             med_cx = int(np.median([f.cx for f in sightings]))
-            med_cy = int(np.median([f.cy for f in sightings]))
-            med_w = int(np.median([f.w for f in sightings]))
-            med_h = int(np.median([f.h for f in sightings]))
-            med_face = FaceInfo(
-                x=med_cx - med_w // 2,
-                y=med_cy - med_h // 2,
-                w=med_w,
-                h=med_h,
-            )
-            face_crops[fid] = self._calc_crop(med_face, vw, vh)
+            face_crops[fid] = self._face_crop(med_cx, vw, vh)
 
-        # Single-speaker fallback: not enough two-face frames
+        # Single-speaker fallback
         if two_face_count < TWO_FACE_MIN_FRAMES or len(face_crops) < 2:
             if not face_crops:
                 return _fallback(clip_dur)
             print(f"[interview] mode=single (two-face frames={two_face_count})")
             return InterviewAnalysis(
                 mode="single",
-                segments=[SpeakerSegment(0.0, clip_dur, 0)],
+                segments=[SpeakerSegment(0.0, clip_dur, next(iter(face_crops)))],
                 face_crops=face_crops,
                 video_width=vw,
                 video_height=vh,
                 clip_duration=clip_dur,
             )
 
-        # Build smoothed speaker timeline
-        raw_segs = self._build_timeline(samples, clip_dur)
-        smooth_segs = self._smooth_timeline(raw_segs)
+        # Build timeline from transcription segments
+        segs = _build_segments_from_transcription(
+            transcription_segments or [], start_time, end_time, clip_dur
+        )
+        segs = self._smooth_timeline(segs)
 
-        print(f"[interview] mode=dynamic_two | segments={len(smooth_segs)} | two-face frames={two_face_count}")
-        for seg in smooth_segs:
+        print(f"[interview] mode=dynamic_two | segments={len(segs)} | two-face frames={two_face_count}")
+        for seg in segs:
             print(f"  [{seg.start:.1f}s-{seg.end:.1f}s] face_{seg.face_id}")
 
         return InterviewAnalysis(
             mode="dynamic_two",
-            segments=smooth_segs,
+            segments=segs,
             face_crops=face_crops,
             video_width=vw,
             video_height=vh,
             clip_duration=clip_dur,
         )
 
-    # ── Timeline construction ─────────────────────────────────────────────
-
-    @staticmethod
-    def _build_timeline(
-        samples: List[Tuple[float, int]], clip_dur: float,
-    ) -> List[SpeakerSegment]:
-        if not samples:
-            return []
-        segs: List[SpeakerSegment] = []
-        t0, fid0 = samples[0]
-        if fid0 < 0:
-            fid0 = 0
-        for t, fid in samples[1:]:
-            if fid < 0:
-                fid = fid0   # keep current speaker on detection failure
-            if fid != fid0:
-                segs.append(SpeakerSegment(t0, t, fid0))
-                t0, fid0 = t, fid
-        segs.append(SpeakerSegment(t0, clip_dur, fid0))
-        return segs
+    # ── Timeline helpers ──────────────────────────────────────────
 
     @staticmethod
     def _smooth_timeline(segments: List[SpeakerSegment]) -> List[SpeakerSegment]:
-        """Iteratively merge the first short segment into its neighbor until stable."""
+        """Merge short segments (<MIN_SEGMENT_SECS) into their neighbours."""
         segs = list(segments)
         for _ in range(40):
             if len(segs) <= 1:
@@ -333,30 +255,23 @@ class InterviewReframer:
             if short_idx is None:
                 break
             if short_idx > 0:
-                # Merge into previous segment
                 prev = segs[short_idx - 1]
                 cur = segs[short_idx]
                 segs[short_idx - 1] = SpeakerSegment(prev.start, cur.end, prev.face_id)
                 segs.pop(short_idx)
             else:
-                # First segment: merge into the next
                 cur = segs[0]
                 nxt = segs[1]
                 segs[0] = SpeakerSegment(cur.start, nxt.end, nxt.face_id)
                 segs.pop(1)
         return segs
 
-    # ── FFmpeg filter generation ──────────────────────────────────────────
+    # ── FFmpeg filter generation ──────────────────────────────────
 
     def generate_filter_complex(self, analysis: InterviewAnalysis) -> Optional[str]:
         """
-        Build FFmpeg filter_complex for dynamic speaker crop.
-
-        The returned string:
-          - reads from [0:v]
-          - produces [out] at 1080x1920
-          - does NOT include audio (caller maps [0:a] separately)
-
+        Build FFmpeg filter_complex for smart-pan speaker crop.
+        Reads [0:v], produces [out] at 1080×1920. Audio not included.
         Returns None if analysis cannot produce a valid filter.
         """
         if analysis.mode == "fallback" or not analysis.segments or not analysis.face_crops:
@@ -364,7 +279,7 @@ class InterviewReframer:
 
         segs = analysis.segments
 
-        # Single segment — simple crop, no split/concat needed
+        # Single segment — simple crop, no split/concat
         if len(segs) == 1:
             fid = segs[0].face_id
             if fid not in analysis.face_crops:
@@ -375,11 +290,9 @@ class InterviewReframer:
         n = len(segs)
         parts: List[str] = []
 
-        # Split input into N streams (one per speaker segment)
         split_labels = "".join(f"[s{i}]" for i in range(n))
         parts.append(f"[0:v]split={n}{split_labels}")
 
-        # Trim + crop + scale each segment
         valid: List[int] = []
         for i, seg in enumerate(segs):
             fid = seg.face_id
@@ -399,10 +312,8 @@ class InterviewReframer:
         if not valid:
             return None
 
-        # Concat all valid segments
         concat_in = "".join(f"[v{i}]" for i in valid)
         parts.append(f"{concat_in}concat=n={len(valid)}:v=1:a=0[out]")
-
         return ";".join(parts)
 
     def close(self) -> None:
@@ -417,6 +328,39 @@ class InterviewReframer:
 
 def create_interview_reframer() -> InterviewReframer:
     return InterviewReframer()
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def _build_segments_from_transcription(
+    transcription_segments: List[dict],
+    clip_start: float,
+    clip_end: float,
+    clip_dur: float,
+) -> List[SpeakerSegment]:
+    """
+    Build speaker alternation using transcription segment boundaries.
+    Each transcript segment flips face_id: 0, 1, 0, 1, …
+    """
+    clip_segs = []
+    for seg in transcription_segments:
+        s = seg.get("start", 0)
+        e = seg.get("end", 0)
+        if e > clip_start and s < clip_end:
+            clip_segs.append({
+                "start": max(s - clip_start, 0.0),
+                "end": min(e - clip_start, clip_dur),
+            })
+
+    if not clip_segs:
+        # No transcription: even split between two speakers
+        mid = clip_dur / 2
+        return [SpeakerSegment(0.0, mid, 0), SpeakerSegment(mid, clip_dur, 1)]
+
+    result = []
+    for i, seg in enumerate(clip_segs):
+        result.append(SpeakerSegment(seg["start"], seg["end"], i % 2))
+    return result
 
 
 def _fallback(clip_dur: float) -> InterviewAnalysis:

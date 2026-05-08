@@ -27,6 +27,18 @@ def _api_url(method: str) -> str:
     return f"https://api.telegram.org/bot{BOT_TOKEN}/{method}"
 
 
+def _resolution_label(width: Optional[int], height: Optional[int]) -> str:
+    if not width or not height:
+        return "неизвестно"
+    if height >= 2160:
+        return f"4K ({width}×{height})"
+    if height >= 1440:
+        return f"1440p ({width}×{height})"
+    if height >= 1080:
+        return f"1080p ({width}×{height})"
+    return f"{height}p ({width}×{height})"
+
+
 def _send(payload: dict) -> bool:
     """Send a Telegram API request synchronously."""
     if not BOT_TOKEN or not CHAT_ID:
@@ -148,6 +160,25 @@ def notify_error(stage: str, error: str, url: str = "") -> bool:
     if url:
         text += f"\nURL: {url[:100]}"
     return _send({"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"})
+
+
+def notify_render_complete(
+    title: str,
+    clip_path: Optional[Path] = None,
+    source_width: Optional[int] = None,
+    source_height: Optional[int] = None,
+) -> bool:
+    """Send Telegram notification when a manual render completes."""
+    caption = f"<b>✂️ Клип готов!</b>\n\n<b>{title[:80]}</b>"
+    src_label = _resolution_label(source_width, source_height)
+    caption += f"\n\n📹 Источник: {src_label} → выходное 1080×1920"
+
+    if clip_path and clip_path.exists():
+        size_mb = clip_path.stat().st_size / 1024 / 1024
+        if size_mb <= 50:
+            return _send_video(clip_path, caption=caption)
+
+    return _send({"chat_id": CHAT_ID, "text": caption, "parse_mode": "HTML"})
 
 
 def notify_daily_report(
