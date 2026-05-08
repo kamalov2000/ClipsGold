@@ -43,8 +43,8 @@ async def main():
     async def transcribe_func(audio_path: str) -> dict:
         """Transcribe audio file using Whisper."""
         try:
-            from services.transcription import run_whisper_transcribe
-            result = run_whisper_transcribe(Path(audio_path), word_timestamps=True)
+            from services.transcription import run_whisper_transcribe_async
+            result, _ = await run_whisper_transcribe_async(Path(audio_path), word_timestamps=True)
             return result
         except Exception as e:
             log.error(f"Transcription error: {e}")

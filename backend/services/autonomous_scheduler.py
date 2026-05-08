@@ -130,8 +130,7 @@ async def process_discovery_item(
         dl_result = await downloader.download_audio_first(url, on_audio_ready=_on_audio_ready)
         source_video_path = dl_result.get("video")
 
-        _mark_status(db, discovery.id, DiscoveryStatus.downloaded,
-                     file_id=str(source_video_path) if source_video_path else None)
+        _mark_status(db, discovery.id, DiscoveryStatus.downloaded)
 
         if not transcript_result:
             err_detail = transcript_error or "empty result (no speech detected)"
