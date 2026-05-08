@@ -133,15 +133,18 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-# Render queue: one job at a time to avoid hangs when multiple clips are rendered at once
+RENDER_WORKERS = 2  # concurrent render workers
 render_queue: asyncio.Queue = asyncio.Queue()
+_active_renders: int = 0  # how many renders are currently running
 
 
 async def _render_worker():
-    """Process render jobs one at a time from the queue."""
+    """Worker that processes render jobs from the queue (RENDER_WORKERS run concurrently)."""
+    global _active_renders
     while True:
         job = await render_queue.get()
         task_id = job["task_id"]
+        _active_renders += 1
         try:
             await manager.send_progress(task_id, {"status": "rendering_started"})
             result = await render_single_clip_with_progress(
@@ -183,6 +186,7 @@ async def _render_worker():
             traceback.print_exc()
             await manager.send_progress(task_id, {"status": "error", "error": err_msg})
         finally:
+            _active_renders -= 1
             render_queue.task_done()
 
 
@@ -460,8 +464,9 @@ async def start_background_workers():
     except Exception as e:
         log.error("db_init_failed", error=str(e))
 
-    asyncio.create_task(_render_worker())
-    log.info("render_worker_started")
+    for _ in range(RENDER_WORKERS):
+        asyncio.create_task(_render_worker())
+    log.info("render_workers_started", count=RENDER_WORKERS)
     asyncio.create_task(_auto_cleanup_worker())
     log.info("cleanup_worker_started")
 
@@ -2243,21 +2248,20 @@ async def render_clip_with_progress(
             "render_mode": request.render_mode,
         }
         print(f"  -> Queueing job with task_id={task_id}")
-        await render_queue.put(job)
-        queue_position = render_queue.qsize()  # items still waiting (not counting active)
-        print(f"  -> Job queued successfully, position={queue_position}")
-        if queue_position > 0:
-            # Job is behind at least one other — notify immediately (buffered until WS connects)
+        # Check before put: if all worker slots are busy, this job will wait
+        will_wait = _active_renders >= RENDER_WORKERS
+        queue_position = render_queue.qsize() + 1 if will_wait else 0
+        if will_wait:
             await manager.send_progress(task_id, {
                 "status": "queued",
                 "position": queue_position,
                 "message": f"В очереди: позиция {queue_position}",
             })
+        await render_queue.put(job)
+        print(f"  -> Job queued, active_renders={_active_renders}, will_wait={will_wait}")
         return {
             "task_id": task_id,
-            "message": "Rendering queued. Connect to WebSocket for progress updates." + (
-                f" Position in queue: {queue_position}." if queue_position > 1 else ""
-            ),
+            "message": "Rendering started." if not will_wait else f"In queue, position {queue_position}.",
             "websocket_url": f"/ws/render-progress/{task_id}",
             "queue_position": queue_position,
         }
