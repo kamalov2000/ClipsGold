@@ -384,7 +384,11 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
         const data = JSON.parse(event.data)
         console.log('Progress update:', data)
         
-        if (data.status === 'processing') {
+        if (data.status === 'queued') {
+          setRenderStatus(prev => ({ ...prev, [clipIndex]: `queued:${data.position}` }))
+        } else if (data.status === 'rendering_started') {
+          setRenderStatus(prev => ({ ...prev, [clipIndex]: 'rendering' }))
+        } else if (data.status === 'processing') {
           setRenderProgress(prev => ({ ...prev, [clipIndex]: data.progress }))
           setRenderStatus(prev => ({ ...prev, [clipIndex]: `rendering (${data.progress}%)` }))
         } else if (data.status === 'complete') {

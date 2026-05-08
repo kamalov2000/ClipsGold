@@ -102,17 +102,24 @@ transcription_store: Dict[str, Dict] = {}
 class ConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, WebSocket] = {}
-    
+        self._pending: Dict[str, list] = {}  # messages buffered before WS connects
+
     async def connect(self, task_id: str, websocket: WebSocket):
         await websocket.accept()
         self.active_connections[task_id] = websocket
         print(f"[OK] WebSocket connected for task: {task_id}")
-    
+        # Flush any messages that arrived before the WS connected
+        for msg in self._pending.pop(task_id, []):
+            try:
+                await websocket.send_json(msg)
+            except Exception:
+                pass
+
     def disconnect(self, task_id: str):
         if task_id in self.active_connections:
             del self.active_connections[task_id]
             print(f"[OK] WebSocket disconnected for task: {task_id}")
-    
+
     async def send_progress(self, task_id: str, progress: dict):
         if task_id in self.active_connections:
             try:
@@ -120,6 +127,9 @@ class ConnectionManager:
             except Exception as e:
                 print(f"[WARN] Failed to send progress for {task_id}: {e}")
                 self.disconnect(task_id)
+        else:
+            # WS not yet connected — buffer the message
+            self._pending.setdefault(task_id, []).append(progress)
 
 manager = ConnectionManager()
 
@@ -133,6 +143,7 @@ async def _render_worker():
         job = await render_queue.get()
         task_id = job["task_id"]
         try:
+            await manager.send_progress(task_id, {"status": "rendering_started"})
             result = await render_single_clip_with_progress(
                 job["file_id"],
                 job["clip_index"],
@@ -2233,8 +2244,15 @@ async def render_clip_with_progress(
         }
         print(f"  -> Queueing job with task_id={task_id}")
         await render_queue.put(job)
-        queue_position = render_queue.qsize()  # 1 = currently processing, 2+ = waiting
+        queue_position = render_queue.qsize()  # items still waiting (not counting active)
         print(f"  -> Job queued successfully, position={queue_position}")
+        if queue_position > 0:
+            # Job is behind at least one other — notify immediately (buffered until WS connects)
+            await manager.send_progress(task_id, {
+                "status": "queued",
+                "position": queue_position,
+                "message": f"В очереди: позиция {queue_position}",
+            })
         return {
             "task_id": task_id,
             "message": "Rendering queued. Connect to WebSocket for progress updates." + (
