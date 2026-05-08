@@ -45,22 +45,30 @@ def _send(payload: dict) -> bool:
         return False
 
 
-def _send_document(path: Path, caption: str) -> bool:
-    """Send a file (video/photo) to the chat."""
+def _send_video(path: Path, caption: str) -> bool:
+    """Send video file — plays inline in Telegram."""
     if not BOT_TOKEN or not CHAT_ID:
         return False
     try:
         import httpx
         with open(path, "rb") as f:
-            with httpx.Client(timeout=60) as client:
+            with httpx.Client(timeout=120) as client:
                 resp = client.post(
-                    _api_url("sendDocument"),
-                    data={"chat_id": CHAT_ID, "caption": caption[:1024], "parse_mode": "HTML"},
-                    files={"document": (path.name, f, "video/mp4")},
+                    _api_url("sendVideo"),
+                    data={
+                        "chat_id": CHAT_ID,
+                        "caption": caption[:1024],
+                        "parse_mode": "HTML",
+                        "supports_streaming": "true",
+                    },
+                    files={"video": (path.name, f, "video/mp4")},
                 )
-                return resp.status_code == 200
+                if resp.status_code != 200:
+                    log.warning(f"[telegram] sendVideo failed: {resp.text[:200]}")
+                    return False
+                return True
     except Exception as e:
-        log.warning(f"[telegram] sendDocument failed: {e}")
+        log.warning(f"[telegram] sendVideo failed: {e}")
         return False
 
 
@@ -72,42 +80,39 @@ def notify_clip_ready(
     source_title: str,
     clip_title: str,
     viral_score: float,
-    start_time: float,
-    end_time: float,
-    hashtags: Optional[List[str]] = None,
+    hook: str = "",
     clip_path: Optional[Path] = None,
     source_url: str = "",
+    # legacy params kept for compat
+    start_time: float = 0,
+    end_time: float = 0,
+    hashtags: Optional[List[str]] = None,
 ) -> bool:
     """
-    Notify when a high-score clip is rendered.
-    Sends text message; optionally attaches video file if small enough (<50MB).
+    Send rendered clip to Telegram as inline video.
+    If file > 50MB, falls back to text message with source link.
     """
-    duration = int(end_time - start_time)
     score_bar = "🔥" * min(int(viral_score), 10)
-    tags_str = " ".join(f"#{t.lstrip('#')}" for t in (hashtags or [])[:5])
 
-    text = (
-        f"<b>Хозяин, нашёл крутой момент!</b>\n\n"
-        f"<b>Источник:</b> {source_title[:80]}\n"
-        f"<b>Клип:</b> {clip_title[:80]}\n"
-        f"<b>Оценка:</b> {viral_score:.1f}/10 {score_bar}\n"
-        f"<b>Длина:</b> {duration}с ({int(start_time)}–{int(end_time)}с)\n"
-    )
-    if tags_str:
-        text += f"<b>Теги:</b> {tags_str}\n"
-    if source_url:
-        text += f"\n<a href='{source_url}'>Источник</a>"
+    caption = f"<b>Готов клип!</b>\n\n"
+    caption += f"<b>{clip_title}</b>\n"
+    if hook:
+        caption += f"<i>{hook[:200]}</i>\n"
+    caption += f"\nВиральность: {int(viral_score)}/10 {score_bar}"
+    if source_title:
+        caption += f"\nИсточник: {source_title[:60]}"
 
-    payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML", "disable_web_page_preview": False}
-    ok = _send(payload)
-
-    # Attach video if small enough
-    if ok and clip_path and clip_path.exists():
+    # Try to send as inline video
+    if clip_path and clip_path.exists():
         size_mb = clip_path.stat().st_size / 1024 / 1024
-        if size_mb < 50:
-            _send_document(clip_path, caption=f"{clip_title} | {viral_score:.1f}/10")
+        if size_mb <= 50:
+            return _send_video(clip_path, caption=caption)
 
-    return ok
+    # Fallback: text message
+    text = caption
+    if source_url:
+        text += f"\n\n<a href='{source_url}'>Смотреть источник</a>"
+    return _send({"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True})
 
 
 def notify_scout_complete(stats: dict) -> bool:

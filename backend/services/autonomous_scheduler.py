@@ -117,7 +117,12 @@ async def process_discovery_item(
         async def _on_audio_ready(ap: Path):
             nonlocal audio_path, transcript_result, transcript_error
             audio_path = ap
-            log.info(f"[pipeline] Audio ready, starting transcription: {ap}")
+            size = ap.stat().st_size if ap.exists() else 0
+            if not ap.exists() or size < 10_000:
+                transcript_error = f"Audio file invalid ({size} bytes): {ap.name}"
+                log.error(f"[pipeline] {transcript_error}")
+                return
+            log.info(f"[pipeline] Audio ready ({size/1024/1024:.1f} MB), transcribing...")
             _mark_status(db, discovery.id, DiscoveryStatus.transcribing)
             try:
                 transcript_result = await transcribe_func(str(ap))
@@ -135,8 +140,7 @@ async def process_discovery_item(
         if not transcript_result:
             err_detail = transcript_error or "empty result (no speech detected)"
             _mark_status(db, discovery.id, DiscoveryStatus.failed, error_message=f"Transcription failed: {err_detail}")
-            if telegram_enabled:
-                notify_error("transcribe", f"Transcription failed: {err_detail}", url)
+            log.warning(f"[pipeline] Transcription failed for {url}: {err_detail}")
             return False
 
         log.info(f"[pipeline] Transcribed: {len(transcript_result.get('text', ''))} chars")
@@ -195,10 +199,8 @@ async def process_discovery_item(
                         notify_clip_ready(
                             source_title=str(source_title)[:80],
                             clip_title=clip.get("title", "Untitled")[:80],
+                            hook=clip.get("hook", ""),
                             viral_score=score,
-                            start_time=clip.get("start_time", 0),
-                            end_time=clip.get("end_time", 0),
-                            hashtags=clip.get("hashtags", []),
                             clip_path=clip_path,
                             source_url=url,
                         )
@@ -306,8 +308,6 @@ async def run_content_scout_job():
     try:
         stats = await run_content_scout()
         log.info(f"[scout] Done: {stats}")
-        if stats.get("queued", 0) > 0:
-            notify_scout_complete(stats)
     except Exception as e:
         log.error(f"[scout] Scout job failed: {e}")
 
