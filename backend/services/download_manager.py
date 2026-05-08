@@ -297,11 +297,15 @@ class UniversalDownloader:
         cmd += [
             "--user-agent", ua,
             "--no-playlist",
-            "--retries", "3",
-            "--fragment-retries", "3",
+            "--socket-timeout", "30",
+            "--retries", "5",
+            "--fragment-retries", "10",
             "--no-warnings",
             "-o", str(output),
         ]
+
+        if not audio_only:
+            cmd += ["--max-filesize", "300M", "--match-filter", "duration < 7200"]
 
         if proxy:
             cmd += ["--proxy", proxy]

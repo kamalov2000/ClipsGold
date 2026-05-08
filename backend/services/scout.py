@@ -69,6 +69,8 @@ async def search_videos(
         "--flat-playlist",
         "--no-warnings",
         "--no-playlist",
+        "--socket-timeout", "30",
+        "--retries", "3",
         search_query,
     ]
 
@@ -83,9 +85,9 @@ async def search_videos(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
     except asyncio.TimeoutError:
-        log.warning(f"[scout] Search timed out for: {query}")
+        log.warning(f"[scout] Search timed out after 120s for: {query!r}")
         return []
     except Exception as e:
         log.error(f"[scout] Search failed: {e}")
@@ -240,6 +242,7 @@ async def run_content_scout() -> Dict[str, int]:
     search_limit = scout_cfg.get("search_results_per_query", 10)
 
     stats = {"searched": 0, "found": 0, "filtered": 0, "duplicates": 0, "queued": 0}
+    HIGH_DUPE_THRESHOLD = 0.70  # if ≥70% of passing videos are dupes → expand search
 
     for kw in keywords:
         query = kw.get("query", "")
@@ -251,6 +254,11 @@ async def run_content_scout() -> Dict[str, int]:
         videos = await search_videos(query, max_results=search_limit, language=kw.get("language", "en"))
         stats["found"] += len(videos)
 
+        kw_filtered = 0
+        kw_dupes = 0
+        kw_queued = 0
+        kw_passed = 0  # videos that passed duration/views/age filter
+
         queued_this_kw = 0
         for video in videos:
             if queued_this_kw >= max_per_kw:
@@ -258,22 +266,67 @@ async def run_content_scout() -> Dict[str, int]:
 
             if not _passes_filters(video, cfg):
                 stats["filtered"] += 1
+                kw_filtered += 1
                 continue
 
+            kw_passed += 1
+
             if _is_already_processed(video["video_id"]):
-                log.debug(f"[scout] Duplicate: {video['video_id']}")
                 stats["duplicates"] += 1
+                kw_dupes += 1
                 continue
 
             if _insert_to_queue(video, niche, query):
                 stats["queued"] += 1
+                kw_queued += 1
                 queued_this_kw += 1
 
+        # Per-query duplicate ratio report
+        dupe_ratio = kw_dupes / kw_passed if kw_passed > 0 else 0.0
+        log.info(
+            f"[scout] Query {query!r}: {len(videos)} found, "
+            f"{kw_filtered} filtered, {kw_dupes}/{kw_passed} dupes "
+            f"({dupe_ratio:.0%}), {kw_queued} new queued"
+        )
+
+        if kw_passed > 0 and dupe_ratio >= HIGH_DUPE_THRESHOLD and kw_queued == 0:
+            log.warning(
+                f"[scout] High duplicate rate ({dupe_ratio:.0%}) for {query!r} — "
+                f"all {kw_passed} passing videos already processed. "
+                f"Consider rotating keywords or widening search criteria."
+            )
+            # Try expanded search: 2× results to find fresh videos
+            log.info(f"[scout] Expanding search for {query!r}: {search_limit} → {search_limit * 2} results")
+            extra_videos = await search_videos(
+                query, max_results=search_limit * 2, language=kw.get("language", "en")
+            )
+            extra_new = 0
+            for video in extra_videos:
+                if queued_this_kw >= max_per_kw:
+                    break
+                if not _passes_filters(video, cfg):
+                    continue
+                if _is_already_processed(video["video_id"]):
+                    continue
+                if _insert_to_queue(video, niche, f"{query} [expanded]"):
+                    stats["queued"] += 1
+                    queued_this_kw += 1
+                    extra_new += 1
+            log.info(f"[scout] Expanded search: {extra_new} new videos added for {query!r}")
+
+    # Overall duplicate health summary
+    total_passing = stats["found"] - stats["filtered"]
+    overall_dupe_ratio = stats["duplicates"] / total_passing if total_passing > 0 else 0.0
     log.info(
         f"[scout] Done: {stats['searched']} queries, "
         f"{stats['found']} found, {stats['filtered']} filtered, "
-        f"{stats['duplicates']} dupes, {stats['queued']} queued"
+        f"{stats['duplicates']} dupes ({overall_dupe_ratio:.0%}), {stats['queued']} queued"
     )
+    if overall_dupe_ratio >= HIGH_DUPE_THRESHOLD:
+        log.warning(
+            f"[scout] Overall duplicate rate is {overall_dupe_ratio:.0%}. "
+            f"Database has most recent videos indexed. Rotate keywords in factory_config.yaml."
+        )
     return stats
 
 
