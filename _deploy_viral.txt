@@ -1,0 +1,5 @@
+active
+17:Your task: Analyze a video transcript and identify ALL moments that are genuinely worth going viral.
+59:- ONLY include moments with viral_score 7/10 or higher
+107:    user_prompt = f"""Analyze this transcript and identify ALL genuinely viral moments (score 7/10 or higher only).
+108:There is no fixed number — return as many or as few as truly deserve it.

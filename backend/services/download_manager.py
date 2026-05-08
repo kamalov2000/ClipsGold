@@ -296,9 +296,14 @@ class UniversalDownloader:
                 "--prefer-ffmpeg",
             ]
         else:
-            # Best video up to 1080p + best audio, merged to mp4
+            # Prefer 4K → 1440p → 1080p, always with best audio, merged to mp4
             cmd += [
-                "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best",
+                "-f", (
+                    "bestvideo[height>=2160][ext=mp4]+bestaudio[ext=m4a]"
+                    "/bestvideo[height>=1440][ext=mp4]+bestaudio[ext=m4a]"
+                    "/bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]"
+                    "/best[ext=mp4]/best"
+                ),
                 "--merge-output-format", "mp4",
             ]
 
@@ -313,7 +318,7 @@ class UniversalDownloader:
         ]
 
         if not audio_only:
-            cmd += ["--max-filesize", "300M", "--match-filter", "duration < 7200"]
+            cmd += ["--max-filesize", "1G", "--match-filter", "duration < 7200"]
 
         if proxy:
             cmd += ["--proxy", proxy]

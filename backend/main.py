@@ -1067,7 +1067,8 @@ async def cut_video_segment_enhanced(
     
     # Interview mode: higher quality encode; standard mode uses veryfast for speed
     if is_interview_mode:
-        cmd_pass2.extend(["-c:v", "libx264", "-preset", "slow", "-crf", "17", "-tune", "film", "-threads", "0"])
+        cmd_pass2.extend(["-c:v", "libx264", "-preset", "slow", "-crf", "15", "-tune", "film",
+                          "-sws_flags", "lanczos+accurate_rnd", "-threads", "0"])
     else:
         cmd_pass2.extend(["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-threads", "0"])
     cmd_pass2.extend(["-c:a", "aac", "-b:a", "128k"])

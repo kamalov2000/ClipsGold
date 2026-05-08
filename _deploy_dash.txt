@@ -1,0 +1,3 @@
+active
+106:        text = text.strip().lstrip('\u2014').lstrip('\u2013').lstrip('-').strip()
+274:                    w = w.lstrip('\u2014').lstrip('\u2013').lstrip('-').strip()

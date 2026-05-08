@@ -1,0 +1,11 @@
+3:Analyzes full transcripts to identify high-impact segments with emotional hooks.
+17:Your task: Analyze a video transcript and identify ALL moments that are genuinely worth going viral.
+72:    GPT decides how many clips to return (only score ≥7, no fixed count).
+75:        transcription_data: Full transcription with segments and timestamps
+86:    segments = transcription_data.get("segments", [])
+87:    if not segments:
+88:        print("[WARN] No segments in transcription")
+93:    for seg in segments:
+101:        print("[WARN] No text content in segments")
+108:There is no fixed number — return as many or as few as truly deserve it.
+118:        print(f"🔍 Analyzing transcript for viral moments ({len(segments)} segments)...")

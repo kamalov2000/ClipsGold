@@ -1,0 +1,22 @@
+174:    # Detect no-face mode: use blur background instead of smart crop
+175:    _preview_mode = (crop_preview or {}).get("mode", "center_crop")
+176:    _has_face = _preview_mode not in ("center_crop", None) and bool((crop_preview or {}).get("faces"))
+177:    _force_blur = not _has_face and _preview_mode != "split_screen"
+179:    if _force_blur:
+180:        print(f"  -> No face detected (mode={_preview_mode}) — using blur background mode")
+229:    letterbox_with_blur = _force_blur
+266:                print(f"  -> No background videos found in assets/background_videos/ — falling back to letterbox+blur")
+270:                letterbox_with_blur = True
+306:    print(f"  -> Mode: {'[!] SATISFYING SPLIT SCREEN' if (is_split_screen_mode and background_video_path) else '[!] SPLIT SCREEN' if is_split_screen_mode else '📦 LETTERBOX+BLUR' if letterbox_with_blur else 'STANDARD'}")
+322:        letterbox_with_blur=letterbox_with_blur,
+---
+450:    letterbox_with_blur: bool = False,
+461:        letterbox_with_blur: If True, scale video to fit 1080x1920 (letterbox) and fill bars with blurred background
+688:        # Standard single crop mode (use -vf or filter_complex for letterbox+blur)
+689:        if letterbox_with_blur:
+690:            # Blur background: original frame fits entirely in 9:16, blurred version fills the rest
+691:            print(f"     • BLUR BACKGROUND MODE (no face detected)")
+693:            # [bg]: scale to fill 1080x1920, apply heavy blur
+695:            # overlay fg centered on blurred bg
+700:                    f"[bg_src]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:5[bg];"
+709:                    f"[bg_src]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:5[bg];"

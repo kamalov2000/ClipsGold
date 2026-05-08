@@ -146,8 +146,12 @@ class InterviewReframer:
         if cw > vw:
             cw = vw
             ch = int(vw * 16 / 9)
+        # Enforce minimum crop size — prevents over-zoom on small sources
+        cw = max(cw, min(720, vw))
+        ch = max(ch, min(1280, vh))
+        # Center face horizontally; face center at 50% height (less aggressive zoom)
         cx = face.cx - cw // 2
-        cy = face.cy - int(ch * 0.38)  # 38% headroom above center
+        cy = face.cy - ch // 2
         cx = max(0, min(cx, vw - cw))
         cy = max(0, min(cy, vh - ch))
         # even values required by libx264
@@ -366,7 +370,7 @@ class InterviewReframer:
             if fid not in analysis.face_crops:
                 fid = next(iter(analysis.face_crops))
             cx, cy, cw, ch = analysis.face_crops[fid]
-            return f"[0:v]crop={cw}:{ch}:{cx}:{cy},scale=1080:1920[out]"
+            return f"[0:v]crop={cw}:{ch}:{cx}:{cy},scale=1080:1920:flags=lanczos[out]"
 
         n = len(segs)
         parts: List[str] = []
@@ -388,7 +392,7 @@ class InterviewReframer:
                 f"[s{i}]trim=start={seg.start:.3f}:end={seg.end:.3f},"
                 f"setpts=PTS-STARTPTS,"
                 f"crop={cw}:{ch}:{cx}:{cy},"
-                f"scale=1080:1920[v{i}]"
+                f"scale=1080:1920:flags=lanczos[v{i}]"
             )
             valid.append(i)
 

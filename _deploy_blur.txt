@@ -1,0 +1,8 @@
+active
+177:    _force_blur = not _has_face and _preview_mode != "split_screen"
+179:    if _force_blur:
+180:        print(f"  -> No face detected (mode={_preview_mode}) — using blur background mode")
+229:    letterbox_with_blur = _force_blur
+691:            print(f"     • BLUR BACKGROUND MODE (no face detected)")
+700:                    f"[bg_src]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:5[bg];"
+709:                    f"[bg_src]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:5[bg];"
