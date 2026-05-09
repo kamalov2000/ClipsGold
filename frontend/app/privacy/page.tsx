@@ -81,7 +81,7 @@ export default function PrivacyPage() {
 
           <h2 style={{fontFamily:'"Caveat",cursive',fontWeight:700,fontSize:34,lineHeight:1.05,margin:'30px 0 0'}}>6. Твои права</h2>
           <ul style={{paddingLeft:22,margin:'8px 0'}}>
-            <li style={{margin:'4px 0'}}>Запросить копию всех своих данных — напиши на <a href="mailto:hello@clipsgold.ru" style={{color:'var(--pink-deep)'}}>hello@clipsgold.ru</a>.</li>
+            <li style={{margin:'4px 0'}}>Запросить копию всех своих данных — напиши на <a href="mailto:kamalov.alb2000@yandex.ru" style={{color:'var(--pink-deep)'}}>kamalov.alb2000@yandex.ru</a>.</li>
             <li style={{margin:'4px 0'}}>Удалить аккаунт целиком — кнопка в <Link href="/settings#danger" style={{color:'var(--pink-deep)'}}>Настройках → Опасная зона</Link>. Удаляем всё и сразу.</li>
             <li style={{margin:'4px 0'}}>Поправить email или имя — там же, в <Link href="/settings" style={{color:'var(--pink-deep)'}}>Настройках</Link>.</li>
           </ul>
@@ -93,7 +93,7 @@ export default function PrivacyPage() {
           <p style={{margin:'8px 0'}}>Если что-то существенно меняется — пишем тебе на email за 30 дней. Дата вверху страницы всегда отражает последнее изменение.</p>
 
           <h2 style={{fontFamily:'"Caveat",cursive',fontWeight:700,fontSize:34,lineHeight:1.05,margin:'30px 0 0'}}>9. Связаться</h2>
-          <p style={{margin:'8px 0'}}>Вопросы и жалобы: <a href="mailto:privacy@clipsgold.ru" style={{color:'var(--pink-deep)'}}>privacy@clipsgold.ru</a>. Отвечаем в рабочие дни в течение 48 часов.</p>
+          <p style={{margin:'8px 0'}}>Вопросы и жалобы: <a href="mailto:kamalov.alb2000@yandex.ru" style={{color:'var(--pink-deep)'}}>kamalov.alb2000@yandex.ru</a>. Отвечаем в рабочие дни в течение 48 часов.</p>
         </div>
 
         <div style={{display:'flex',gap:14,flexWrap:'wrap',marginTop:14,fontFamily:'"Caveat",cursive',fontSize:22}}>

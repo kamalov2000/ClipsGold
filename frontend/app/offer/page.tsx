@@ -82,7 +82,7 @@ export default function OfferPage() {
           <p style={{margin:'8px 0'}}>Исполнитель имеет право изменить условия оферты. О любых изменениях, касающихся цен или возвратов, мы сообщаем за <b>30 дней</b> по email и публикуем новую версию здесь с обновлённой датой.</p>
 
           <h2 style={{fontFamily:'"Caveat",cursive',fontWeight:700,fontSize:34,lineHeight:1.05,margin:'30px 0 0'}}>8. Контакты</h2>
-          <p style={{margin:'8px 0'}}>Письма по оферте: <a href="mailto:hello@clipsgold.ru" style={{color:'var(--pink-deep)'}}>hello@clipsgold.ru</a>. По вопросам блокировок и злоупотреблений: <a href="mailto:abuse@clipsgold.ru" style={{color:'var(--pink-deep)'}}>abuse@clipsgold.ru</a>.</p>
+          <p style={{margin:'8px 0'}}>Письма по оферте: <a href="mailto:kamalov.alb2000@yandex.ru" style={{color:'var(--pink-deep)'}}>kamalov.alb2000@yandex.ru</a>. По вопросам блокировок и злоупотреблений: <a href="mailto:kamalov.alb2000@yandex.ru" style={{color:'var(--pink-deep)'}}>kamalov.alb2000@yandex.ru</a>.</p>
         </div>
 
         <div style={{display:'flex',gap:14,flexWrap:'wrap',marginTop:14,fontFamily:'"Caveat",cursive',fontSize:22}}>

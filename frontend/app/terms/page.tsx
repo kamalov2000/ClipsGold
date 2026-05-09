@@ -88,7 +88,7 @@ export default function TermsPage() {
           <ul style={{paddingLeft:22,margin:'8px 0'}}>
             <li style={{margin:'4px 0'}}>В бете SLA нет. Делаем что можем, чиним когда ломается.</li>
             <li style={{margin:'4px 0'}}>После релиза — целевой аптайм 99,5%, рендер очереди в нормальные часы &lt; 10 минут.</li>
-            <li style={{margin:'4px 0'}}>Падения и проблемы публикуем в Telegram-канале <a href="https://t.me/clipsgold" target="_blank" rel="noopener" style={{color:'var(--pink-deep)'}}>@clipsgold</a>.</li>
+            <li style={{margin:'4px 0'}}>Падения и проблемы публикуем в Telegram-канале <a href="https://t.me/ClipsGoldBot" target="_blank" rel="noopener" style={{color:'var(--pink-deep)'}}>@ClipsGoldBot</a>.</li>
           </ul>
 
           <h2 style={{fontFamily:'"Caveat",cursive',fontWeight:700,fontSize:34,lineHeight:1.05,margin:'30px 0 0'}}>6. Аккаунт и пароли</h2>
@@ -106,7 +106,7 @@ export default function TermsPage() {
           <p style={{margin:'8px 0'}}>ClipsGold предоставляется «как есть». Мы стараемся, чтобы всё работало, но не гарантируем, что нарезка идеально подойдёт под твой контент. За ущерб от использования сервиса (упущенная выгода и тп) — мы не отвечаем.</p>
 
           <h2 style={{fontFamily:'"Caveat",cursive',fontWeight:700,fontSize:34,lineHeight:1.05,margin:'30px 0 0'}}>9. Куда писать</h2>
-          <p style={{margin:'8px 0'}}>Вопросы по условиям — <a href="mailto:hello@clipsgold.ru" style={{color:'var(--pink-deep)'}}>hello@clipsgold.ru</a>. Споры — по закону РФ, по месту нахождения исполнителя.</p>
+          <p style={{margin:'8px 0'}}>Вопросы по условиям — <a href="mailto:kamalov.alb2000@yandex.ru" style={{color:'var(--pink-deep)'}}>kamalov.alb2000@yandex.ru</a>. Споры — по закону РФ, по месту нахождения исполнителя.</p>
         </div>
 
         <div style={{display:'flex',gap:14,flexWrap:'wrap',marginTop:14,fontFamily:'"Caveat",cursive',fontSize:22}}>
