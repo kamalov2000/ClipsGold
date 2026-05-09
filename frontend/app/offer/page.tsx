@@ -56,7 +56,7 @@ export default function OfferPage() {
           </div>
 
           <h2 style={{fontFamily:'"Caveat",cursive',fontWeight:700,fontSize:34,lineHeight:1.05,margin:'30px 0 0'}}>1. Стороны</h2>
-          <p style={{margin:'8px 0'}}><b>Исполнитель:</b> ИП «ClipsGold» (реквизиты появятся в финальной редакции).<br/>
+          <p style={{margin:'8px 0'}}><b>Исполнитель:</b> ClipsGold, проект в стадии беты. Реквизиты будут указаны при переходе на коммерческий режим работы.<br/>
           <b>Заказчик:</b> любой пользователь, акцептовавший оферту через регистрацию аккаунта.</p>
 
           <h2 style={{fontFamily:'"Caveat",cursive',fontWeight:700,fontSize:34,lineHeight:1.05,margin:'30px 0 0'}}>2. Предмет договора</h2>
