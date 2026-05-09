@@ -22,6 +22,10 @@ interface Segment {
   start: number
   end: number
   text: string
+  virality?: number
+  vir?: number
+  start_time?: number
+  timestamp?: string
 }
 
 interface ClipMeta {
@@ -70,6 +74,7 @@ export default function RenderPage() {
   const [cta, setCta] = useState('')
 
   // ── Transcript editing ──────────────────────────────────────────────────
+  const [editingTranscript] = useState(true)
   const [editedSegments, setEditedSegments] = useState<Segment[]>([])
 
   // ── Render state ────────────────────────────────────────────────────────
@@ -571,23 +576,40 @@ export default function RenderPage() {
 
               {editedSegments.map((seg, i) => {
                 const inClip = isInClip(seg)
+                const virScore = seg.virality ?? seg.vir ?? null
                 return (
                   <div key={i} style={{ ...S.seg, ...(inClip ? S.segInClip : {}) }}>
-                    <div style={S.segTs}>{fmt(Math.round(seg.start))}</div>
-                    <div
-                      style={S.segText}
-                      contentEditable
-                      suppressContentEditableWarning
-                      onBlur={e => {
-                        const text = e.currentTarget.textContent || ''
-                        setEditedSegments(prev => {
-                          const next = [...prev]
-                          next[i] = { ...next[i], text }
-                          return next
-                        })
-                      }}
-                    >
-                      {seg.text}
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '2px 0', width: '100%' }}>
+                      <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--pink)', flexShrink: 0, paddingTop: 2 }}>
+                        {seg.start_time != null ? fmt(Math.round(seg.start_time)) : seg.timestamp ?? fmt(Math.round(seg.start))}
+                      </span>
+                      {virScore != null && (
+                        <span style={{
+                          flexShrink: 0, fontFamily: '"Caveat", cursive', fontSize: 14,
+                          background: virScore >= 8 ? 'var(--pink)' : 'var(--yellow)',
+                          color: virScore >= 8 ? '#fff' : 'var(--ink)',
+                          padding: '0px 6px', borderRadius: '8px 10px 6px 8px',
+                          border: '1.5px solid var(--ink)', boxShadow: '1px 1px 0 var(--ink)',
+                          lineHeight: 1.4,
+                        }}>
+                          {virScore.toFixed(1)}
+                        </span>
+                      )}
+                      <span
+                        style={{ flex: 1 }}
+                        contentEditable={editingTranscript}
+                        suppressContentEditableWarning
+                        onBlur={e => {
+                          const text = e.currentTarget.textContent || ''
+                          setEditedSegments(prev => {
+                            const next = [...prev]
+                            next[i] = { ...next[i], text }
+                            return next
+                          })
+                        }}
+                      >
+                        {seg.text}
+                      </span>
                     </div>
                   </div>
                 )
@@ -767,6 +789,7 @@ const S: Record<string, React.CSSProperties> = {
     background: '#fff', color: 'var(--ink)',
     display: 'inline-flex', alignItems: 'center', gap: 6,
     cursor: 'pointer',
+    transition: 'transform .12s ease, box-shadow .12s ease',
   },
   btnPink: {
     background: 'var(--pink)', color: '#fff', textShadow: '1px 1px 0 rgba(58,46,42,.35)',
@@ -889,6 +912,7 @@ const S: Record<string, React.CSSProperties> = {
     background: '#fff', border: '2.5px solid var(--ink)', padding: '6px 12px 4px',
     borderRadius: '12px 16px 10px 14px / 14px 10px 16px 12px',
     boxShadow: '2px 2px 0 var(--ink)', cursor: 'pointer',
+    transition: 'transform .12s ease, box-shadow .12s ease',
   },
   chipOn: { background: 'var(--mint)' },
   chipOnPink: { background: 'var(--pink)', color: '#fff', textShadow: '1px 1px 0 rgba(58,46,42,.35)' },
@@ -966,6 +990,7 @@ const S: Record<string, React.CSSProperties> = {
     borderRadius: '20px 16px 22px 18px / 16px 20px 18px 22px',
     padding: '10px 26px 8px', boxShadow: '5px 6px 0 var(--ink)',
     textShadow: '1px 1px 0 rgba(58,46,42,.35)', cursor: 'pointer',
+    transition: 'transform .12s ease, box-shadow .12s ease',
   },
 
   // Toast

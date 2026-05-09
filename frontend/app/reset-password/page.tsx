@@ -17,13 +17,15 @@ function ResetPasswordForm() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  // Password strength: 4 levels by length
+  // Password strength: rule-based, 4 criteria
   function getStrength(pw: string): number {
-    if (!pw) return 0
-    if (pw.length < 6) return 1
-    if (pw.length < 10) return 2
-    if (pw.length < 14) return 3
-    return 4
+    if (pw.length === 0) return 0
+    let score = 0
+    if (pw.length >= 8) score++
+    if (/[0-9]/.test(pw)) score++
+    if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) score++
+    if (pw.length >= 12 && /[^A-Za-z0-9]/.test(pw)) score++
+    return Math.min(score, 4)
   }
 
   function getStrengthLabel(s: number): string {
@@ -39,7 +41,8 @@ function ResetPasswordForm() {
   const rules = {
     len: password.length >= 8,
     num: /[0-9]/.test(password),
-    case: /[a-zа-яё]/.test(password) && /[A-ZА-ЯЁ]/.test(password),
+    case: /[A-Z]/.test(password) && /[a-z]/.test(password),
+    bonus: password.length >= 12 && /[^A-Za-z0-9]/.test(password),
   }
 
   const passwordsMatch = password.length > 0 && password === password2
@@ -194,9 +197,10 @@ function ResetPasswordForm() {
               {/* Rules checklist */}
               <ul style={{ margin: '6px 0', padding: 0, fontSize: 14, color: 'var(--ink-soft)', lineHeight: 1.6 }}>
                 {[
-                  { rule: rules.len, label: '8+ символов' },
-                  { rule: rules.num, label: 'хотя бы одна цифра' },
-                  { rule: rules.case, label: 'буквы разного регистра' },
+                  { rule: rules.len, label: '≥ 8 символов' },
+                  { rule: rules.num, label: 'Есть цифры' },
+                  { rule: rules.case, label: 'Строчные + заглавные' },
+                  { rule: rules.bonus, label: '12+ символов и спецсимволы (бонус)' },
                 ].map(({ rule, label }) => (
                   <li key={label} style={{ listStyle: 'none', paddingLeft: 22, position: 'relative', color: rule ? 'var(--ink)' : 'var(--ink-soft)' }}>
                     <span style={{ position: 'absolute', left: 4, color: rule ? '#0a8a4f' : 'var(--ink-soft)' }}>

@@ -15,7 +15,7 @@ export default function OfferPage() {
           </span>
           Clips<span style={{color:'var(--yellow-deep)',textShadow:'1.5px 1.5px 0 var(--ink)'}}>Gold</span>
         </Link>
-        <Link href="/" style={{fontFamily:'"Caveat",cursive',fontSize:22,color:'var(--ink)',textDecoration:'none'}}>← на главную</Link>
+        <Link href="/" style={{fontFamily:'"Caveat",cursive',fontSize:22,color:'var(--ink)',textDecoration:'none',transition:'transform .12s ease, box-shadow .12s ease'}}>← на главную</Link>
       </nav>
 
       <div style={{padding:'14px 28px 0',fontFamily:'"Caveat",cursive',fontSize:20,color:'var(--ink-soft)'}}>
@@ -91,8 +91,8 @@ export default function OfferPage() {
         </div>
 
         <div style={{marginTop:30,display:'flex',gap:12,flexWrap:'wrap',fontFamily:'"Caveat",cursive',fontSize:22}}>
-          <Link href="/" style={{display:'inline-flex',alignItems:'center',gap:8,background:'var(--paper)',color:'var(--ink)',border:'3px solid var(--ink)',borderRadius:'18px 22px 16px 20px / 16px 22px 18px 22px',padding:'8px 18px 6px',boxShadow:'4px 5px 0 var(--ink)',textDecoration:'none'}}>← на главную</Link>
-          <Link href="/register" style={{display:'inline-flex',alignItems:'center',gap:8,background:'var(--pink)',color:'#fff',border:'3px solid var(--ink)',borderRadius:'18px 22px 16px 20px / 16px 22px 18px 22px',padding:'8px 18px 6px',boxShadow:'4px 5px 0 var(--ink)',textDecoration:'none',textShadow:'1px 1px 0 rgba(58,46,42,.35)'}}>Создать аккаунт 🦖</Link>
+          <Link href="/" style={{display:'inline-flex',alignItems:'center',gap:8,background:'var(--paper)',color:'var(--ink)',border:'3px solid var(--ink)',borderRadius:'18px 22px 16px 20px / 16px 22px 18px 22px',padding:'8px 18px 6px',boxShadow:'4px 5px 0 var(--ink)',textDecoration:'none',transition:'transform .12s ease, box-shadow .12s ease'}}>← на главную</Link>
+          <Link href="/register" style={{display:'inline-flex',alignItems:'center',gap:8,background:'var(--pink)',color:'#fff',border:'3px solid var(--ink)',borderRadius:'18px 22px 16px 20px / 16px 22px 18px 22px',padding:'8px 18px 6px',boxShadow:'4px 5px 0 var(--ink)',textDecoration:'none',textShadow:'1px 1px 0 rgba(58,46,42,.35)',transition:'transform .12s ease, box-shadow .12s ease'}}>Создать аккаунт 🦖</Link>
         </div>
       </div>
     </div>

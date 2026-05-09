@@ -576,7 +576,7 @@ function StudioPage() {
                 </span>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {(['tiktok', 'shorts', 'reels'] as const).map((v) => (
-                    <button key={v} type="button" onClick={() => setPlatform(v)} style={chipStyle(platform === v, 'pink')}>
+                    <button key={v} type="button" onClick={() => setPlatform(v)} className="chip-btn" style={chipStyle(platform === v, 'pink')}>
                       {v === 'tiktok' ? 'TikTok' : v === 'shorts' ? 'Shorts' : 'Reels'}
                     </button>
                   ))}
@@ -601,7 +601,7 @@ function StudioPage() {
                 </span>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {(['3', '5', '10', '15'] as const).map((v) => (
-                    <button key={v} type="button" onClick={() => setClipCount(v)} style={chipStyle(clipCount === v, 'yellow')}>
+                    <button key={v} type="button" onClick={() => setClipCount(v)} className="chip-btn" style={chipStyle(clipCount === v, 'yellow')}>
                       {v}
                     </button>
                   ))}
@@ -626,7 +626,7 @@ function StudioPage() {
                 </span>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {(['podcast', 'hormozi', 'minimal'] as const).map((v) => (
-                    <button key={v} type="button" onClick={() => setCaptionStyle(v)} style={chipStyle(captionStyle === v, 'lilac')}>
+                    <button key={v} type="button" onClick={() => setCaptionStyle(v)} className="chip-btn" style={chipStyle(captionStyle === v, 'lilac')}>
                       {v.charAt(0).toUpperCase() + v.slice(1)}
                     </button>
                   ))}
@@ -651,7 +651,7 @@ function StudioPage() {
                 </span>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {(['ru', 'en', 'es'] as const).map((v) => (
-                    <button key={v} type="button" onClick={() => setLanguage(v)} style={chipStyle(language === v, 'mint')}>
+                    <button key={v} type="button" onClick={() => setLanguage(v)} className="chip-btn" style={chipStyle(language === v, 'mint')}>
                       {v === 'ru' ? 'Русский' : v === 'en' ? 'English' : 'Español'}
                     </button>
                   ))}
@@ -669,6 +669,7 @@ function StudioPage() {
                 type="button"
                 onClick={handleSubmit}
                 disabled={ytLoading || uploading}
+                className="btn-cut"
                 style={{
                   fontFamily: '"Caveat", cursive',
                   fontWeight: 700,
@@ -923,6 +924,7 @@ function StudioPage() {
                     <div
                       key={`${clip.file_id}-${clip.clip_id}`}
                       onClick={() => router.push(`/render/${clip.file_id}/${clip.clip_id}`)}
+                      className="clip-card"
                       style={{
                         background: 'var(--paper)',
                         border: '3px solid var(--ink)',
@@ -1215,6 +1217,18 @@ function StudioPage() {
           .empty-clips-grid {
             grid-template-columns: repeat(2, 1fr) !important;
           }
+        }
+        .clip-card:hover {
+          transform: translate(-2px,-2px) rotate(-.5deg) !important;
+          box-shadow: 6px 7px 0 var(--ink) !important;
+        }
+        .btn-cut:hover:not(:disabled) {
+          transform: translate(-2px,-2px) rotate(-1deg) !important;
+          box-shadow: 7px 8px 0 var(--ink) !important;
+          background: var(--pink-deep) !important;
+        }
+        .chip-btn:hover {
+          transform: translate(-1px,-1px) !important;
         }
       `}</style>
     </>

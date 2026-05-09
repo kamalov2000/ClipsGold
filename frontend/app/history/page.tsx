@@ -5,6 +5,14 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 
+const FILTERS = [
+  { key: 'all', label: 'Все' },
+  { key: 'done', label: 'Готовые' },
+  { key: 'running', label: 'В работе' },
+  { key: 'factory', label: 'Из Фабрики' },
+  { key: 'viral', label: '🔥 9+' },
+]
+
 interface Clip {
   id: string
   file_id: string
@@ -93,6 +101,7 @@ export default function HistoryPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
 
   useEffect(() => {
     async function load() {
@@ -114,6 +123,7 @@ export default function HistoryPage() {
     const matchSearch = !search || p.title.toLowerCase().includes(search.toLowerCase())
     if (!matchSearch) return false
     if (filter === 'done') return (p.published_count ?? 0) > 0
+    if (filter === 'running') return (p as any).status === 'running'
     if (filter === 'factory') return p.platform === 'factory'
     if (filter === 'viral') return p.avg_virality >= 9
     return true
@@ -184,13 +194,19 @@ export default function HistoryPage() {
             <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="найти видео или клип..." style={{border:0,outline:0,background:'transparent',flex:1,fontSize:18,fontFamily:'"Patrick Hand",sans-serif',color:'var(--ink)'}} />
           </div>
           <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-            {[
-              {key:'all',label:'Все'},
-              {key:'done',label:'Готовые'},
-              {key:'factory',label:'Из Фабрики'},
-              {key:'viral',label:'🔥 9+'},
-            ].map(f => (
-              <button key={f.key} onClick={() => setFilter(f.key)} style={{fontFamily:'"Caveat",cursive',fontSize:18,lineHeight:1,border:'2.5px solid var(--ink)',background:filter===f.key?'var(--pink)':'#fff',color:filter===f.key?'#fff':'inherit',textShadow:filter===f.key?'1px 1px 0 rgba(58,46,42,.35)':'none',padding:'6px 12px 4px',borderRadius:'12px 16px 10px 14px / 14px 10px 16px 12px',boxShadow:'2px 2px 0 var(--ink)',cursor:'pointer'}}>{f.label}</button>
+            {FILTERS.map(f => {
+              const isActive = filter === f.key
+              const isRunning = f.key === 'running'
+              return (
+                <button key={f.key} onClick={() => setFilter(f.key)} style={{fontFamily:'"Caveat",cursive',fontSize:18,lineHeight:1,border:'2.5px solid var(--ink)',background:isActive?(isRunning?'var(--yellow)':'var(--pink)'):'#fff',color:isActive&&!isRunning?'#fff':'inherit',textShadow:isActive&&!isRunning?'1px 1px 0 rgba(58,46,42,.35)':'none',padding:'6px 12px 4px',borderRadius:'12px 16px 10px 14px / 14px 10px 16px 12px',boxShadow:'2px 2px 0 var(--ink)',cursor:'pointer'}}>{f.label}</button>
+              )
+            })}
+          </div>
+          <div style={{marginLeft:'auto',display:'flex',border:'2.5px solid var(--ink)',borderRadius:'14px 18px 12px 16px',overflow:'hidden',boxShadow:'2px 3px 0 var(--ink)'}}>
+            {(['grid','list'] as const).map(m => (
+              <button key={m} onClick={() => setViewMode(m)} style={{fontFamily:'"Caveat",cursive',fontSize:18,padding:'4px 14px 2px',background:viewMode===m?'var(--yellow)':'#fff',border:0,cursor:'pointer',borderRight:m==='grid'?'2.5px solid var(--ink)':'none'}}>
+                {m === 'grid' ? '⊞ Сетка' : '☰ Список'}
+              </button>
             ))}
           </div>
         </div>
@@ -239,23 +255,44 @@ export default function HistoryPage() {
                   </div>
                 </div>
 
-                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(140px,1fr))',gap:10,marginTop:14}}>
-                  {proj.clips.slice(0, 6).map((clip, idx) => (
-                    <div key={clip.id} onClick={() => router.push(`/render/${clip.file_id}/${clip.id}`)} className={`clip-card clip-${CLIP_COLORS[idx % CLIP_COLORS.length]}`}>
-                      <div style={{position:'absolute',top:6,left:6,background:'#fff',color:'var(--ink)',fontFamily:'"Caveat",cursive',fontSize:14,lineHeight:1,padding:'2px 7px 1px',border:'2px solid var(--ink)',borderRadius:'8px 12px 8px 12px',boxShadow:'1px 1px 0 var(--ink)'}}>
-                        {virEmoji(clip.virality)} {clip.virality?.toFixed(1)}
+                {viewMode === 'grid' ? (
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(140px,1fr))',gap:10,marginTop:14}}>
+                    {proj.clips.slice(0, 6).map((clip, idx) => (
+                      <div key={clip.id} onClick={() => router.push(`/render/${clip.file_id}/${clip.id}`)} className={`clip-card clip-${CLIP_COLORS[idx % CLIP_COLORS.length]}`}>
+                        <div style={{position:'absolute',top:6,left:6,background:'#fff',color:'var(--ink)',fontFamily:'"Caveat",cursive',fontSize:14,lineHeight:1,padding:'2px 7px 1px',border:'2px solid var(--ink)',borderRadius:'8px 12px 8px 12px',boxShadow:'1px 1px 0 var(--ink)'}}>
+                          {virEmoji(clip.virality)} {clip.virality?.toFixed(1)}
+                        </div>
+                        <div style={{position:'absolute',top:6,right:6,background:'rgba(0,0,0,.5)',fontSize:11,padding:'1px 6px',borderRadius:6}}>{fmtClipDuration(clip.duration)}</div>
+                        <div style={{position:'absolute',left:6,right:6,bottom:6,fontFamily:'"Caveat",cursive',fontSize:15,lineHeight:1.05,textShadow:'1px 1px 0 rgba(58,46,42,.5)'}}>{clip.title}</div>
                       </div>
-                      <div style={{position:'absolute',top:6,right:6,background:'rgba(0,0,0,.5)',fontSize:11,padding:'1px 6px',borderRadius:6}}>{fmtClipDuration(clip.duration)}</div>
-                      <div style={{position:'absolute',left:6,right:6,bottom:6,fontFamily:'"Caveat",cursive',fontSize:15,lineHeight:1.05,textShadow:'1px 1px 0 rgba(58,46,42,.5)'}}>{clip.title}</div>
-                    </div>
-                  ))}
-                  {proj.clips_count > 6 && (
-                    <div style={{aspectRatio:'9/16',border:'2.5px solid var(--ink)',borderRadius:'12px 16px 10px 14px / 14px 10px 16px 12px',boxShadow:'3px 3px 0 var(--ink)',background:'var(--cream-2)',borderStyle:'dashed',display:'grid',placeItems:'center',cursor:'pointer',flexDirection:'column',textAlign:'center'}} onClick={() => router.push(`/app`)}>
-                      <div style={{fontFamily:'"Caveat",cursive',fontSize:32,lineHeight:1}}>+{proj.clips_count - 6}</div>
-                      <div style={{fontFamily:'"Patrick Hand",sans-serif',fontSize:13,color:'var(--ink-soft)',padding:'0 4px'}}>показать ещё клипы</div>
-                    </div>
-                  )}
-                </div>
+                    ))}
+                    {proj.clips_count > 6 && (
+                      <div style={{aspectRatio:'9/16',border:'2.5px solid var(--ink)',borderRadius:'12px 16px 10px 14px / 14px 10px 16px 12px',boxShadow:'3px 3px 0 var(--ink)',background:'var(--cream-2)',borderStyle:'dashed',display:'grid',placeItems:'center',cursor:'pointer',textAlign:'center'}} onClick={() => router.push(`/app`)}>
+                        <div style={{fontFamily:'"Caveat",cursive',fontSize:32,lineHeight:1}}>+{proj.clips_count - 6}</div>
+                        <div style={{fontFamily:'"Patrick Hand",sans-serif',fontSize:13,color:'var(--ink-soft)',padding:'0 4px'}}>показать ещё клипы</div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{marginTop:14,display:'flex',flexDirection:'column',gap:6}}>
+                    {proj.clips.map((clip, idx) => (
+                      <div key={clip.id} onClick={() => router.push(`/render/${clip.file_id}/${clip.id}`)} style={{display:'flex',alignItems:'center',gap:10,padding:'6px 10px',background:'#fff',border:'2px solid var(--ink)',borderRadius:'10px 14px 8px 12px / 12px 8px 14px 10px',boxShadow:'2px 2px 0 var(--ink)',cursor:'pointer'}}>
+                        <div className={`clip-${CLIP_COLORS[idx % CLIP_COLORS.length]}`} style={{width:48,height:85,flex:'none',borderRadius:'6px 10px 6px 8px',border:'2px solid var(--ink)',position:'relative',overflow:'hidden'}}>
+                          <div style={{position:'absolute',inset:0}}/>
+                        </div>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontFamily:'"Caveat",cursive',fontSize:18,lineHeight:1.1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{clip.title}</div>
+                        </div>
+                        <div style={{fontFamily:'"Caveat",cursive',fontSize:16,color:'var(--ink-soft)',whiteSpace:'nowrap'}}>{fmtClipDuration(clip.duration)}</div>
+                        <div style={{fontFamily:'"Caveat",cursive',fontSize:16,whiteSpace:'nowrap'}}>{virEmoji(clip.virality)} {clip.virality?.toFixed(1)}</div>
+                        <div style={{fontSize:13,color:'var(--ink-soft)',whiteSpace:'nowrap'}}>{new Date(clip.created_at).toLocaleDateString('ru-RU',{day:'numeric',month:'short'})}</div>
+                        <div style={{display:'flex',gap:6}}>
+                          <button onClick={e=>{e.stopPropagation();router.push(`/render/${clip.file_id}/${clip.id}`)}} style={{fontFamily:'"Caveat",cursive',fontSize:16,background:'var(--pink)',color:'#fff',border:'2px solid var(--ink)',borderRadius:'8px 12px 6px 10px',padding:'3px 10px 1px',boxShadow:'2px 2px 0 var(--ink)',cursor:'pointer',textShadow:'1px 1px 0 rgba(58,46,42,.35)'}}>Открыть</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>

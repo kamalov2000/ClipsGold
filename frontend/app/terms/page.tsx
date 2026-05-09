@@ -7,6 +7,7 @@ export const metadata = {
 export default function TermsPage() {
   return (
     <div style={{margin:0,background:'var(--cream)',color:'var(--ink)',fontFamily:'"Patrick Hand",sans-serif',fontSize:18,lineHeight:1.55,backgroundImage:'radial-gradient(circle at 12% 14%, rgba(255,209,102,.35) 0 2px, transparent 3px),radial-gradient(circle at 88% 22%, rgba(255,143,163,.32) 0 2px, transparent 3px),radial-gradient(circle at 30% 80%, rgba(125,211,192,.32) 0 2px, transparent 3px),radial-gradient(circle at 75% 88%, rgba(201,182,228,.32) 0 2px, transparent 3px)',backgroundSize:'520px 520px',minHeight:'100vh'}}>
+      <style>{`@media (max-width: 600px) { .terms-grid { grid-template-columns: 1fr !important; } }`}</style>
 
       <nav style={{position:'sticky',top:0,zIndex:5,background:'rgba(255,243,214,.92)',backdropFilter:'blur(6px)',borderBottom:'3px solid var(--ink)',display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 28px',fontFamily:'"Caveat",cursive'}}>
         <Link href="/" style={{display:'flex',alignItems:'center',gap:8,textDecoration:'none',color:'var(--ink)',fontSize:30,lineHeight:1}}>
@@ -15,7 +16,7 @@ export default function TermsPage() {
           </span>
           Clips<span style={{color:'var(--yellow-deep)',textShadow:'1.5px 1.5px 0 var(--ink)'}}>Gold</span>
         </Link>
-        <Link href="/" style={{fontFamily:'"Caveat",cursive',fontSize:22,color:'var(--ink)',textDecoration:'none'}}>← на главную</Link>
+        <Link href="/" style={{fontFamily:'"Caveat",cursive',fontSize:22,color:'var(--ink)',textDecoration:'none',transition:'transform .12s ease, box-shadow .12s ease'}}>← на главную</Link>
       </nav>
 
       <div style={{padding:'14px 28px 0',fontFamily:'"Caveat",cursive',fontSize:20,color:'var(--ink-soft)'}}>
@@ -54,7 +55,7 @@ export default function TermsPage() {
           <p style={{margin:'8px 0'}}>Регистрируясь в ClipsGold, ты соглашаешься с этими условиями. Если не согласен — пожалуйста, не пользуйся сервисом. Динозаврик не обижается.</p>
 
           <h2 style={{fontFamily:'"Caveat",cursive',fontWeight:700,fontSize:34,lineHeight:1.05,margin:'30px 0 0'}}>2. Что можно загружать</h2>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,margin:'12px 0'}}>
+          <div className="terms-grid" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,margin:'12px 0'}}>
             <div style={{border:'2.5px solid var(--ink)',borderRadius:'16px 20px 14px 18px / 18px 14px 20px 16px',padding:'12px 14px',boxShadow:'3px 4px 0 var(--ink)',background:'#E8F8EE'}}>
               <h3 style={{fontFamily:'"Caveat",cursive',fontSize:24,lineHeight:1.05,margin:'0 0 4px',color:'#0a8a4f'}}>✓ можно</h3>
               <ul style={{margin:0,paddingLeft:18}}>
@@ -114,8 +115,8 @@ export default function TermsPage() {
         </div>
 
         <div style={{marginTop:30,display:'flex',gap:12,flexWrap:'wrap',fontFamily:'"Caveat",cursive',fontSize:22}}>
-          <Link href="/" style={{display:'inline-flex',alignItems:'center',gap:8,background:'var(--paper)',color:'var(--ink)',border:'3px solid var(--ink)',borderRadius:'18px 22px 16px 20px / 16px 22px 18px 22px',padding:'8px 18px 6px',boxShadow:'4px 5px 0 var(--ink)',textDecoration:'none'}}>← на главную</Link>
-          <Link href="/register" style={{display:'inline-flex',alignItems:'center',gap:8,background:'var(--pink)',color:'#fff',border:'3px solid var(--ink)',borderRadius:'18px 22px 16px 20px / 16px 22px 18px 22px',padding:'8px 18px 6px',boxShadow:'4px 5px 0 var(--ink)',textDecoration:'none',textShadow:'1px 1px 0 rgba(58,46,42,.35)'}}>Создать аккаунт 🦖</Link>
+          <Link href="/" style={{display:'inline-flex',alignItems:'center',gap:8,background:'var(--paper)',color:'var(--ink)',border:'3px solid var(--ink)',borderRadius:'18px 22px 16px 20px / 16px 22px 18px 22px',padding:'8px 18px 6px',boxShadow:'4px 5px 0 var(--ink)',textDecoration:'none',transition:'transform .12s ease, box-shadow .12s ease'}}>← на главную</Link>
+          <Link href="/register" style={{display:'inline-flex',alignItems:'center',gap:8,background:'var(--pink)',color:'#fff',border:'3px solid var(--ink)',borderRadius:'18px 22px 16px 20px / 16px 22px 18px 22px',padding:'8px 18px 6px',boxShadow:'4px 5px 0 var(--ink)',textDecoration:'none',textShadow:'1px 1px 0 rgba(58,46,42,.35)',transition:'transform .12s ease, box-shadow .12s ease'}}>Создать аккаунт 🦖</Link>
         </div>
       </div>
     </div>

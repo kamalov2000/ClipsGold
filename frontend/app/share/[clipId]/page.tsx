@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { API_BASE } from '@/lib/api'
 
@@ -41,6 +41,8 @@ export default function SharePage({ params }: { params: { clipId: string } }) {
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState('')
   const [playing, setPlaying] = useState(false)
+  const [progress, setProgress] = useState(0)
+  const videoRef = useRef<HTMLVideoElement>(null)
 
   useEffect(() => {
     async function load() {
@@ -120,11 +122,16 @@ export default function SharePage({ params }: { params: { clipId: string } }) {
             <div style={{aspectRatio:'9/16',maxWidth:380,margin:'0 auto',border:'3px solid var(--ink)',borderRadius:24,boxShadow:'8px 10px 0 var(--ink)',overflow:'hidden',position:'relative',background:'linear-gradient(160deg,#2A2A40 0%,#4B3F6E 100%)',color:'#fff',transform:'rotate(-1.5deg)'}}>
               {clip.filename && (
                 <video
+                  ref={videoRef}
                   src={`${API_BASE}/clips/${clip.filename}`}
                   style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}
                   controls={playing}
                   playsInline
                   onClick={() => setPlaying(true)}
+                  onTimeUpdate={(e) => {
+                    const v = e.currentTarget
+                    setProgress(v.duration ? (v.currentTime / v.duration) * 100 : 0)
+                  }}
                 />
               )}
               <div style={{position:'absolute',top:14,left:14,fontFamily:'"Caveat",cursive',fontSize:24,lineHeight:1,background:'#fff',color:'var(--ink)',border:'2.5px solid var(--ink)',padding:'5px 12px 3px',borderRadius:'12px 16px 10px 14px / 14px 10px 16px 12px',boxShadow:'2px 2px 0 var(--ink)',transform:'rotate(-3deg)'}}>
@@ -133,16 +140,28 @@ export default function SharePage({ params }: { params: { clipId: string } }) {
               <div style={{position:'absolute',top:14,right:14,background:'rgba(0,0,0,.6)',fontSize:14,padding:'3px 10px',borderRadius:8,border:'2px solid #fff'}}>
                 {fmtDuration(clip.duration)}
               </div>
+              {clip.hook && (
+                <div style={{position:'absolute',left:0,right:0,top:'38%',transform:'translateY(-50%) rotate(-2deg)',textAlign:'center',fontFamily:'"Caveat",cursive',fontWeight:700,fontSize:50,lineHeight:.95,textShadow:'2px 3px 0 rgba(58,46,42,.6)',padding:'0 16px'}}>
+                  {clip.hook}
+                </div>
+              )}
               {!playing && (
                 <div style={{position:'absolute',left:'50%',top:'50%',transform:'translate(-50%,-50%)',width:74,height:74,borderRadius:'50%',background:'#fff',border:'3px solid var(--ink)',boxShadow:'4px 5px 0 var(--ink)',display:'grid',placeItems:'center',cursor:'pointer'}} onClick={() => setPlaying(true)}>
                   <svg width="22" height="22" viewBox="0 0 24 24"><path d="M5 4 L20 12 L5 20 Z" fill="#3A2E2A"/></svg>
                 </div>
               )}
-              {clip.hook && (
-                <div style={{position:'absolute',left:14,right:14,bottom:24,background:'var(--yellow)',color:'var(--ink)',fontFamily:'"Caveat",cursive',fontWeight:700,fontSize:24,lineHeight:1.1,border:'2.5px solid var(--ink)',padding:'6px 12px 4px',borderRadius:'14px 18px 12px 16px / 16px 12px 18px 14px',boxShadow:'3px 3px 0 var(--ink)',textAlign:'center'}}>
-                  {clip.hook}
-                </div>
-              )}
+            </div>
+            {/* Scrub bar */}
+            <div
+              style={{height:6,background:'#e0dbd0',borderRadius:3,margin:'8px 0',position:'relative',cursor:'pointer'}}
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect()
+                const pct = (e.clientX - rect.left) / rect.width
+                const v = videoRef.current
+                if (v && v.duration) { v.currentTime = pct * v.duration }
+              }}
+            >
+              <div style={{width:`${progress}%`,height:'100%',background:'var(--pink)',borderRadius:3,transition:'width .1s linear'}} />
             </div>
             <div style={{textAlign:'center',marginTop:14,color:'var(--ink-soft)',fontSize:14}}>
               ↑ нажми, чтобы посмотреть
@@ -170,7 +189,7 @@ export default function SharePage({ params }: { params: { clipId: string } }) {
 
             {clip.source_title && (
               <div style={{marginTop:16,color:'var(--ink-soft)',fontSize:15}}>
-                Из эпизода «{clip.source_title}» · {clip.source_platform}
+                Из эпизода «{clip.source_title}»{clip.source_duration ? ` · ${fmtDuration(clip.source_duration)}` : ''} · {clip.source_platform || 'YouTube'}
               </div>
             )}
 
@@ -241,6 +260,8 @@ export default function SharePage({ params }: { params: { clipId: string } }) {
         <div>сделано в <Link href="/" style={{color:'var(--pink-deep)'}}>ClipsGold</Link> · видеоредактор для подкастов и лекций</div>
         <div>
           <Link href="/terms" style={{color:'var(--pink-deep)'}}>условия</Link> · <Link href="/privacy" style={{color:'var(--pink-deep)'}}>политика</Link>
+          <span style={{color:'var(--ink-soft)',margin:'0 8px'}}>·</span>
+          <a href="#" style={{color:'var(--ink-soft)',fontSize:14}} onClick={(e) => e.preventDefault()}>пожаловаться на клип</a>
         </div>
       </footer>
 

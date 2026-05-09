@@ -51,6 +51,39 @@ const NICHE_CONFIG: { [key: string]: { ico: string; label: string } } = {
   finance: { ico: '💰', label: 'Финансы' },
 }
 
+// 7-day static data (no backend endpoint yet)
+const perfData = [
+  { day: 'Пн', clips: 12, isWeekend: false },
+  { day: 'Вт', clips: 8, isWeekend: false },
+  { day: 'Ср', clips: 15, isWeekend: false },
+  { day: 'Чт', clips: 10, isWeekend: false },
+  { day: 'Пт', clips: 18, isWeekend: false },
+  { day: 'Сб', clips: 6, isWeekend: true },
+  { day: 'Вс', clips: 4, isWeekend: true },
+]
+const maxClips = Math.max(...perfData.map(d => d.clips))
+
+const HOUR_STATES: Record<number, 'idle' | 'busy' | 'peak' | 'plan'> = {
+  0: 'idle', 1: 'idle', 2: 'idle', 3: 'idle', 4: 'idle', 5: 'idle',
+  6: 'busy', 7: 'busy', 8: 'peak', 9: 'peak', 10: 'peak', 11: 'busy',
+  12: 'busy', 13: 'peak', 14: 'peak', 15: 'busy', 16: 'busy', 17: 'peak',
+  18: 'busy', 19: 'busy', 20: 'idle', 21: 'idle', 22: 'idle', 23: 'idle',
+}
+
+const hourStateStyle: Record<'idle' | 'busy' | 'peak' | 'plan', { background: string; color: string }> = {
+  idle: { background: '#fff', color: 'var(--ink-soft)' },
+  busy: { background: 'var(--yellow)', color: 'var(--ink)' },
+  peak: { background: 'var(--pink)', color: '#fff' },
+  plan: { background: 'var(--lilac)', color: 'var(--ink)' },
+}
+
+const hourEmoji: Record<'idle' | 'busy' | 'peak' | 'plan', string> = {
+  idle: '💤',
+  busy: '⚡',
+  peak: '🔥',
+  plan: '📋',
+}
+
 function fmtDuration(secs: number) {
   const h = Math.floor(secs / 3600)
   const m = Math.floor((secs % 3600) / 60)
@@ -121,6 +154,28 @@ export default function FactoryPage() {
     cnt: stats?.niches[key] ?? 0,
     on: activeNiches.has(key),
   }))
+
+  // SVG bar chart calculations
+  const barWidth = 28
+  const barGap = 8
+  const chartPaddingLeft = 24
+  const chartPaddingRight = 16
+  const chartPaddingTop = 22  // room for count labels above bars
+  const chartPaddingBottom = 24  // room for day labels
+  const barAreaHeight = 160
+  const svgWidth = chartPaddingLeft + perfData.length * (barWidth + barGap) - barGap + chartPaddingRight
+  const svgHeight = chartPaddingTop + barAreaHeight + chartPaddingBottom
+
+  const barX = (i: number) => chartPaddingLeft + i * (barWidth + barGap)
+  const barH = (clips: number) => (clips / maxClips) * barAreaHeight
+  const barY = (clips: number) => chartPaddingTop + barAreaHeight - barH(clips)
+
+  // Dashed trend line points (connecting tops of bars)
+  const trendPoints = perfData.map((d, i) => {
+    const cx = barX(i) + barWidth / 2
+    const cy = barY(d.clips)
+    return `${cx},${cy}`
+  }).join(' ')
 
   return (
     <>
@@ -208,6 +263,134 @@ export default function FactoryPage() {
               <div style={{fontSize:15,color:'var(--ink-soft)',marginTop:2}}>{s.extra}</div>
             </div>
           ))}
+        </div>
+
+        {/* Performance chart — 7 days */}
+        <div style={{border:'3px solid var(--ink)',boxShadow:'4px 5px 0 var(--ink)',borderRadius:'22px 26px 20px 24px / 20px 24px 26px 22px',padding:'20px 22px',marginBottom:24,background:'var(--paper)'}}>
+          <h2 style={{fontFamily:'"Caveat",cursive',fontSize:32,margin:'0 0 4px'}}>Производительность · 7 дней</h2>
+          <div style={{color:'var(--ink-soft)',fontSize:15,marginBottom:14}}>Сколько клипов в день успеваем сделать.</div>
+
+          <div style={{overflowX:'auto'}}>
+            <svg
+              viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+              width={svgWidth}
+              height={svgHeight}
+              style={{display:'block',fontFamily:'"Patrick Hand",sans-serif'}}
+            >
+              {/* Bars */}
+              {perfData.map((d, i) => {
+                const x = barX(i)
+                const h = barH(d.clips)
+                const y = barY(d.clips)
+                const fill = d.isWeekend ? '#FF8FA3' : '#FFD166'
+                return (
+                  <g key={d.day}>
+                    <rect
+                      x={x} y={y} width={barWidth} height={h}
+                      fill={fill} stroke="#3A2E2A" strokeWidth="2"
+                      rx="4" ry="4"
+                    />
+                    {/* Count label above bar */}
+                    <text
+                      x={x + barWidth / 2} y={y - 5}
+                      textAnchor="middle"
+                      fontSize="13"
+                      fill="#3A2E2A"
+                      fontFamily='"Patrick Hand",sans-serif'
+                    >
+                      {d.clips}
+                    </text>
+                    {/* Day label below bar */}
+                    <text
+                      x={x + barWidth / 2}
+                      y={svgHeight - 4}
+                      textAnchor="middle"
+                      fontSize="13"
+                      fill="#6B574F"
+                      fontFamily='"Patrick Hand",sans-serif'
+                    >
+                      {d.day}
+                    </text>
+                  </g>
+                )
+              })}
+
+              {/* Dashed trend line connecting bar tops */}
+              <polyline
+                points={trendPoints}
+                fill="none"
+                stroke="#3A2E2A"
+                strokeWidth="2"
+                strokeDasharray="4 5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
+
+          {/* Legend */}
+          <div style={{display:'flex',gap:18,marginTop:12,fontSize:15,color:'var(--ink-soft)',flexWrap:'wrap',alignItems:'center'}}>
+            <span>
+              <span style={{display:'inline-block',width:12,height:12,background:'#FFD166',border:'2px solid var(--ink)',verticalAlign:'middle',marginRight:4}}></span>
+              будни
+            </span>
+            <span>
+              <span style={{display:'inline-block',width:12,height:12,background:'#FF8FA3',border:'2px solid var(--ink)',verticalAlign:'middle',marginRight:4}}></span>
+              выходные
+            </span>
+            <span style={{marginLeft:'auto'}}>
+              Всего: <b style={{color:'var(--ink)'}}>73</b> клипа
+            </span>
+          </div>
+        </div>
+
+        {/* Schedule — today */}
+        <div style={{border:'3px solid var(--ink)',boxShadow:'4px 5px 0 var(--ink)',borderRadius:'22px 26px 20px 24px / 20px 24px 26px 22px',padding:'20px 22px',marginBottom:24,background:'var(--paper)'}}>
+          <h2 style={{fontFamily:'"Caveat",cursive',fontSize:32,margin:'0 0 4px'}}>Расписание · сегодня</h2>
+          <div style={{color:'var(--ink-soft)',fontSize:15,marginBottom:14}}>Динозаврик отдыхает с 02:00 до 06:00</div>
+
+          {/* 24-hour grid — 8 columns */}
+          <div style={{display:'grid',gridTemplateColumns:'repeat(8,1fr)',gap:6}}>
+            {Array.from({length:24},(_,h) => {
+              const state = HOUR_STATES[h]
+              const st = hourStateStyle[state]
+              const emoji = hourEmoji[state]
+              return (
+                <div
+                  key={h}
+                  style={{
+                    border:'2.5px solid var(--ink)',
+                    borderRadius:8,
+                    boxShadow:'1px 2px 0 var(--ink)',
+                    background:st.background,
+                    color:st.color,
+                    display:'flex',
+                    flexDirection:'column',
+                    alignItems:'center',
+                    justifyContent:'center',
+                    padding:'6px 2px',
+                    gap:2,
+                  }}
+                >
+                  <span style={{fontSize:16,lineHeight:1}}>{emoji}</span>
+                  <span style={{fontFamily:'"Caveat",cursive',fontSize:16,lineHeight:1}}>
+                    {String(h).padStart(2,'0')}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Footer note + legend */}
+          <div style={{marginTop:10,fontSize:14,color:'var(--ink-soft)'}}>
+            Динозаврик отдыхает с 02:00 до 06:00
+          </div>
+          <div style={{display:'flex',gap:14,marginTop:10,fontSize:15,color:'var(--ink-soft)',flexWrap:'wrap',alignItems:'center'}}>
+            <span>🔥 пик</span>
+            <span>⚡ работаем</span>
+            <span>💤 отдых</span>
+            <span>📋 план</span>
+          </div>
         </div>
 
         {/* Niches + Live feed */}

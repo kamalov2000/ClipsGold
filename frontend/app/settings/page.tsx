@@ -26,6 +26,18 @@ export default function SettingsPage() {
   const [notifyPressed, setNotifyPressed] = useState(false)
   const [activeSection, setActiveSection] = useState('account')
   const [notifToggles, setNotifToggles] = useState([true, true, false, false])
+  const [dirty, setDirty] = useState(false)
+
+  // Defaults state
+  const [defPlatform, setDefPlatform] = useState('tiktok')
+  const [defCaption, setDefCaption] = useState('podcast')
+  const [defCrop, setDefCrop] = useState('face')
+  const [defLang, setDefLang] = useState('ru')
+  const [defCount, setDefCount] = useState('5')
+  const [defLength, setDefLength] = useState('30-60')
+  const [togJumpCut, setTogJumpCut] = useState(true)
+  const [togHashtags, setTogHashtags] = useState(true)
+  const [togWatermark, setTogWatermark] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -42,9 +54,29 @@ export default function SettingsPage() {
     load()
   }, [])
 
+  const markDirty = () => setDirty(true)
+
   const showToast = (msg: string) => {
     setToast(msg)
     setTimeout(() => setToast(''), 2200)
+  }
+
+  const handleSave = async () => {
+    try {
+      await api.post('/settings', {
+        default_platform: defPlatform,
+        default_caption: defCaption,
+        default_crop: defCrop,
+        default_lang: defLang,
+        default_clip_count: defCount,
+        default_clip_length: defLength,
+        jump_cut: togJumpCut,
+        auto_hashtags: togHashtags,
+        watermark: togWatermark,
+      })
+    } catch {}
+    setDirty(false)
+    showToast('сохранено в норку 🦖')
   }
 
   const handleChangePassword = async () => {
@@ -89,9 +121,52 @@ export default function SettingsPage() {
     { id: 'account', label: 'Аккаунт', dot: 'var(--pink)' },
     { id: 'plan', label: 'Тариф', dot: 'var(--yellow)' },
     { id: 'integrations', label: 'Интеграции', dot: 'var(--mint)' },
+    { id: 'defaults', label: 'Параметры по умолчанию', dot: 'var(--teal)' },
     { id: 'notif', label: 'Уведомления', dot: 'var(--teal)' },
     { id: 'danger', label: 'Опасная зона', dot: 'var(--pink-deep)' },
   ]
+
+  const selectStyle: React.CSSProperties = {
+    border: '2.5px solid var(--ink)',
+    borderRadius: '14px 18px 12px 16px / 16px 12px 18px 14px',
+    padding: '9px 14px',
+    fontFamily: '"Patrick Hand", sans-serif',
+    fontSize: 17,
+    background: '#fff',
+    color: 'var(--ink)',
+    boxShadow: '2px 3px 0 var(--ink)',
+    outline: 'none',
+    width: '100%',
+  }
+
+  const togglePill = (on: boolean, onToggle: () => void) => (
+    <div
+      onClick={onToggle}
+      style={{
+        position: 'relative',
+        width: 48,
+        height: 28,
+        background: on ? 'var(--pink)' : '#e0dbd0',
+        border: '2.5px solid var(--ink)',
+        borderRadius: 16,
+        cursor: 'pointer',
+        transition: 'background .2s',
+        flexShrink: 0,
+      }}
+    >
+      <div style={{
+        position: 'absolute',
+        top: 1,
+        left: on ? 23 : 1,
+        width: 22,
+        height: 22,
+        borderRadius: '50%',
+        background: '#fff',
+        border: '2px solid var(--ink)',
+        transition: 'left .2s',
+      }} />
+    </div>
+  )
 
   return (
     <>
@@ -110,7 +185,9 @@ export default function SettingsPage() {
         .toggle-sw.on::after{left:23px}
         .ig-card{background:#fff;border:2.5px solid var(--ink);border-radius:16px 20px 14px 18px / 18px 14px 20px 16px;box-shadow:3px 4px 0 var(--ink);padding:14px 16px;display:flex;align-items:center;gap:12px;opacity:.78;background:repeating-linear-gradient(135deg,#fff 0 14px,#FFF8E5 14px 28px)}
         .soon-badge{display:inline-block;background:var(--lilac);color:var(--ink);border:2.5px solid var(--ink);box-shadow:2px 3px 0 var(--ink);border-radius:11px 14px 9px 13px / 13px 9px 14px 11px;padding:3px 11px 1px;font-family:"Caveat",cursive;font-size:18px;line-height:1;transform:rotate(-3deg);flex:none}
+        .def-lbl{font-family:"Patrick Hand SC",sans-serif;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--ink-soft)}
         @media (max-width:880px){.set-layout{grid-template-columns:1fr!important}}
+        @media (max-width:680px){.def-grid{grid-template-columns:1fr!important}}
       `}</style>
 
       <nav style={{maxWidth:1280,margin:'0 auto',padding:'18px 28px',display:'flex',justifyContent:'space-between',alignItems:'center',gap:24}}>
@@ -157,11 +234,12 @@ export default function SettingsPage() {
 
             <div style={{display:'flex',alignItems:'center',gap:18,marginTop:12}}>
               <div style={{width:88,height:88,borderRadius:'50%',border:'3px solid var(--ink)',background:'var(--lilac)',display:'grid',placeItems:'center',fontFamily:'"Caveat",cursive',fontSize:48,fontWeight:700,boxShadow:'4px 5px 0 var(--ink)',transform:'rotate(-3deg)'}}>{initials}</div>
-              <div>
+              <div style={{display:'flex',flexDirection:'column',gap:8}}>
                 <div style={{fontFamily:'"Caveat",cursive',fontSize:26,lineHeight:1}}>{user?.name || user?.email || '—'}</div>
-                <div style={{color:'var(--ink-soft)',fontSize:14,marginTop:4}}>{user?.email}</div>
-                <div style={{marginTop:6,display:'inline-block',fontFamily:'"Caveat",cursive',fontSize:16,background:'var(--mint)',border:'2px solid var(--ink)',padding:'2px 10px',borderRadius:'8px 12px 8px 12px',boxShadow:'1px 2px 0 var(--ink)'}}>
-                  {user?.plan || 'Beta · бесплатно'}
+                <div style={{color:'var(--ink-soft)',fontSize:14}}>{user?.email}</div>
+                <div style={{display:'flex',gap:8}}>
+                  <button className="set-btn" onClick={() => {}}>Загрузить фото</button>
+                  <button className="set-btn danger" style={{color:'var(--pink-deep)',borderColor:'var(--pink-deep)'}} onClick={() => {}}>Удалить</button>
                 </div>
               </div>
             </div>
@@ -171,11 +249,11 @@ export default function SettingsPage() {
               <div style={{display:'flex',gap:14,flexWrap:'wrap',alignItems:'flex-end'}}>
                 <label style={{display:'grid',gap:4}}>
                   <span style={{fontFamily:'"Patrick Hand SC",sans-serif',fontSize:13,letterSpacing:'1px',textTransform:'uppercase',color:'var(--ink-soft)'}}>Старый пароль</span>
-                  <input className="set-input" type="password" value={oldPassword} onChange={e=>setOldPassword(e.target.value)} placeholder="••••••••" />
+                  <input className="set-input" type="password" value={oldPassword} onChange={e => { setOldPassword(e.target.value); markDirty() }} placeholder="••••••••" />
                 </label>
                 <label style={{display:'grid',gap:4}}>
                   <span style={{fontFamily:'"Patrick Hand SC",sans-serif',fontSize:13,letterSpacing:'1px',textTransform:'uppercase',color:'var(--ink-soft)'}}>Новый пароль</span>
-                  <input className="set-input" type="password" value={newPassword} onChange={e=>setNewPassword(e.target.value)} placeholder="••••••••" />
+                  <input className="set-input" type="password" value={newPassword} onChange={e => { setNewPassword(e.target.value); markDirty() }} placeholder="••••••••" />
                 </label>
                 <button className="set-btn yellow" onClick={handleChangePassword}>Сменить</button>
               </div>
@@ -245,6 +323,100 @@ export default function SettingsPage() {
             </div>
           </section>
 
+          {/* DEFAULTS */}
+          <section className="set-card" id="defaults">
+            <h2 style={{fontFamily:'"Caveat",cursive',fontSize:34,lineHeight:1,margin:0,display:'flex',alignItems:'center',gap:10}}>
+              <span style={{width:10,height:10,borderRadius:'50%',background:'var(--teal)',flexShrink:0,display:'inline-block'}}></span>
+              По умолчанию
+            </h2>
+            <div style={{color:'var(--ink-soft)',marginTop:2,fontSize:16}}>Эти параметры подставятся для каждого нового клипа. Изменить можно на /render.</div>
+
+            <div className="def-grid" style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:14,marginTop:18}}>
+              <label style={{display:'grid',gap:4}}>
+                <span className="def-lbl">Платформа</span>
+                <select style={selectStyle} value={defPlatform} onChange={e => { setDefPlatform(e.target.value); markDirty() }}>
+                  <option value="tiktok">TikTok 9:16</option>
+                  <option value="youtube_shorts">YouTube Shorts</option>
+                  <option value="instagram_reels">Instagram Reels</option>
+                </select>
+              </label>
+
+              <label style={{display:'grid',gap:4}}>
+                <span className="def-lbl">Стиль субтитров</span>
+                <select style={selectStyle} value={defCaption} onChange={e => { setDefCaption(e.target.value); markDirty() }}>
+                  <option value="podcast">Podcast · мягкий</option>
+                  <option value="hormozi">Hormozi · ярко-жёлтый</option>
+                  <option value="minimal">Minimal · чистый</option>
+                  <option value="none">Без субтитров</option>
+                </select>
+              </label>
+
+              <label style={{display:'grid',gap:4}}>
+                <span className="def-lbl">Smart Crop · режим</span>
+                <select style={selectStyle} value={defCrop} onChange={e => { setDefCrop(e.target.value); markDirty() }}>
+                  <option value="face">Face — следить за лицом</option>
+                  <option value="group">Group — два говорящих</option>
+                  <option value="split">Split — экран пополам</option>
+                </select>
+              </label>
+
+              <label style={{display:'grid',gap:4}}>
+                <span className="def-lbl">Язык транскрипции</span>
+                <select style={selectStyle} value={defLang} onChange={e => { setDefLang(e.target.value); markDirty() }}>
+                  <option value="ru">Русский</option>
+                  <option value="en">English</option>
+                  <option value="auto">Авто-определение</option>
+                </select>
+              </label>
+
+              <label style={{display:'grid',gap:4}}>
+                <span className="def-lbl">Количество клипов</span>
+                <select style={selectStyle} value={defCount} onChange={e => { setDefCount(e.target.value); markDirty() }}>
+                  <option value="3">3 клипа</option>
+                  <option value="5">5 клипов</option>
+                  <option value="10">10 клипов</option>
+                  <option value="15">15 клипов</option>
+                </select>
+              </label>
+
+              <label style={{display:'grid',gap:4}}>
+                <span className="def-lbl">Длина клипа</span>
+                <select style={selectStyle} value={defLength} onChange={e => { setDefLength(e.target.value); markDirty() }}>
+                  <option value="30-60">30–60 секунд</option>
+                  <option value="45-90">45–90 секунд</option>
+                  <option value="60-120">60–120 секунд</option>
+                  <option value="90-180">90–180 секунд</option>
+                </select>
+              </label>
+            </div>
+
+            <div style={{marginTop:18,display:'flex',flexDirection:'column',gap:0}}>
+              <div style={{display:'flex',alignItems:'center',gap:14,marginTop:14}}>
+                {togglePill(togJumpCut, () => { setTogJumpCut(v => !v); markDirty() })}
+                <div>
+                  <div style={{fontFamily:'"Caveat",cursive',fontSize:22,lineHeight:1}}>Jump-cut по тишине</div>
+                  <div style={{color:'var(--ink-soft)',fontSize:14}}>Вырезаем паузы &gt; 0.6 сек — клипы становятся динамичнее.</div>
+                </div>
+              </div>
+
+              <div style={{display:'flex',alignItems:'center',gap:14,marginTop:14}}>
+                {togglePill(togHashtags, () => { setTogHashtags(v => !v); markDirty() })}
+                <div>
+                  <div style={{fontFamily:'"Caveat",cursive',fontSize:22,lineHeight:1}}>Авто-хэштеги</div>
+                  <div style={{color:'var(--ink-soft)',fontSize:14}}>Подбираем 5–8 хэштегов по теме клипа.</div>
+                </div>
+              </div>
+
+              <div style={{display:'flex',alignItems:'center',gap:14,marginTop:14}}>
+                {togglePill(togWatermark, () => { setTogWatermark(v => !v); markDirty() })}
+                <div>
+                  <div style={{fontFamily:'"Caveat",cursive',fontSize:22,lineHeight:1}}>Водяной знак ClipsGold</div>
+                  <div style={{color:'var(--ink-soft)',fontSize:14}}>Маленький дино в углу — поможешь нам в бете 🦖</div>
+                </div>
+              </div>
+            </div>
+          </section>
+
           {/* NOTIF */}
           <section className="set-card" id="notif">
             <h2 style={{fontFamily:'"Caveat",cursive',fontSize:34,lineHeight:1,margin:0}}>Уведомления</h2>
@@ -267,7 +439,7 @@ export default function SettingsPage() {
               {label:'Маркетинговые письма',sub:''},
             ].map((item,i) => (
               <div key={i} style={{display:'flex',alignItems:'center',gap:14,marginTop:14}}>
-                <div className={`toggle-sw${notifToggles[i]?' on':''}`} onClick={() => setNotifToggles(t => t.map((v,j) => j===i ? !v : v))}></div>
+                <div className={`toggle-sw${notifToggles[i]?' on':''}`} onClick={() => { setNotifToggles(t => t.map((v,j) => j===i ? !v : v)); markDirty() }}></div>
                 <div>
                   <span style={{fontFamily:'"Caveat",cursive',fontSize:22,lineHeight:1}}>{item.label}</span>
                   {item.sub && <small style={{color:'var(--ink-soft)',marginLeft:4,fontSize:14}}>{item.sub}</small>}
@@ -291,6 +463,67 @@ export default function SettingsPage() {
           </section>
         </main>
       </div>
+
+      {/* UNSAVED CHANGES BAR */}
+      {dirty && (
+        <div style={{
+          position: 'fixed',
+          bottom: 18,
+          left: '50%',
+          transform: 'translateX(-50%) rotate(-.4deg)',
+          background: 'var(--yellow)',
+          border: '3px solid var(--ink)',
+          borderRadius: '20px 24px 18px 22px / 18px 22px 24px 20px',
+          boxShadow: '5px 6px 0 var(--ink)',
+          padding: '10px 20px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 14,
+          zIndex: 100,
+          fontFamily: '"Patrick Hand", sans-serif',
+          fontSize: 18,
+          whiteSpace: 'nowrap',
+        }}>
+          <span style={{fontFamily:'"Caveat",cursive',fontSize:20}}>Есть несохранённые изменения</span>
+          <button
+            onClick={() => setDirty(false)}
+            style={{
+              fontFamily: '"Caveat",cursive',
+              fontWeight: 700,
+              fontSize: 20,
+              lineHeight: 1,
+              border: '2.5px solid var(--ink)',
+              padding: '6px 16px 4px',
+              borderRadius: '14px 18px 12px 16px / 16px 12px 18px 14px',
+              boxShadow: '2px 3px 0 var(--ink)',
+              background: '#fff',
+              cursor: 'pointer',
+              color: 'var(--ink)',
+            }}
+          >
+            Отмена
+          </button>
+          <button
+            onClick={handleSave}
+            style={{
+              fontFamily: '"Caveat",cursive',
+              fontWeight: 700,
+              fontSize: 20,
+              lineHeight: 1,
+              border: '2.5px solid var(--ink)',
+              padding: '6px 16px 4px',
+              borderRadius: '14px 18px 12px 16px / 16px 12px 18px 14px',
+              boxShadow: '2px 3px 0 var(--ink)',
+              background: 'var(--pink)',
+              color: '#fff',
+              cursor: 'pointer',
+              textShadow: '1px 1px 0 rgba(58,46,42,.35)',
+            }}
+          >
+            Сохранить
+          </button>
+        </div>
+      )}
 
       {toast && (
         <div style={{position:'fixed',left:'50%',bottom:34,transform:'translateX(-50%) rotate(-1deg)',background:'var(--mint)',border:'3px solid var(--ink)',borderRadius:'18px 22px 16px 20px / 18px 16px 22px 20px',boxShadow:'5px 6px 0 var(--ink)',padding:'12px 22px 10px',fontFamily:'"Caveat",cursive',fontSize:24,zIndex:50,whiteSpace:'nowrap'}}>
