@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { FileVideo, Sparkles, Scissors, Download, RotateCcw, Loader2, MessageSquare, Zap } from 'lucide-react'
-import { api, API_BASE, WS_BASE } from '@/lib/api'
+import { api, API_BASE, WS_BASE, getToken } from '@/lib/api'
 
 interface VideoProcessorProps {
   fileId: string
@@ -100,6 +100,8 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
 
   // Jump-cut toggle (global)
   const [enableJumpCut, setEnableJumpCut] = useState(false)
+  // Filler word removal toggle (global)
+  const [enableFillerRemoval, setEnableFillerRemoval] = useState(false)
 
   // Editable timecodes per candidate (overrides AI values when rendering)
   const [clipTimecodes, setClipTimecodes] = useState<{[key: number]: { start: string; end: string } }>({})
@@ -359,6 +361,7 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
           subtitle_style: subtitleStyles[clipIndex] || 'podcast',
           subtitle_language: subtitleLanguages[clipIndex] || 'auto',
           enable_jump_cut: enableJumpCut,
+          enable_filler_removal: enableFillerRemoval,
           enable_sfx: false,
           render_mode: renderModes[clipIndex] ?? 'blur_background',
         }
@@ -370,8 +373,9 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
         setRenderStatus(prev => ({ ...prev, [clipIndex]: `queued:${queuePosition}` }))
       }
 
-      // Connect to WebSocket for progress updates
-      const ws = new WebSocket(`${WS_BASE}/ws/render-progress/${taskId}`)
+      // Connect to WebSocket for progress updates (token required by backend)
+      const wsToken = getToken() ?? ''
+      const ws = new WebSocket(`${WS_BASE}/ws/render-progress/${taskId}?token=${encodeURIComponent(wsToken)}`)
       wsConnections.current[taskId] = ws
 
       ws.onopen = () => {
@@ -463,11 +467,21 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
     }
   }
 
-  const handleDownloadClip = (clipId: number, downloadUrl?: string, candidateIndex?: number) => {
+  const handleDownloadClip = async (clipId: number, downloadUrl?: string, candidateIndex?: number) => {
     const url = downloadUrl
       ? `${API_BASE}${downloadUrl}`
       : `${API_BASE}/clips/${fileId}_clip_${clipId}_VIRAL_GOLD.mp4`
-    window.open(url, '_blank')
+    try {
+      const resp = await api.get(url.replace(API_BASE, ''), { responseType: 'blob' })
+      const blobUrl = URL.createObjectURL(resp.data)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = downloadUrl?.split('/').pop() || `clip_${clipId}.mp4`
+      a.click()
+      URL.revokeObjectURL(blobUrl)
+    } catch {
+      window.open(url, '_blank')
+    }
   }
 
   const handleRerender = (index: number) => {
@@ -793,6 +807,12 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
                   onChange={(e) => setEnableJumpCut(e.target.checked)}
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
                 <span className="text-sm font-medium text-gray-600">✂ Jump-Cut</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer shrink-0">
+                <input type="checkbox" checked={enableFillerRemoval}
+                  onChange={(e) => setEnableFillerRemoval(e.target.checked)}
+                  className="rounded border-gray-300 text-green-600 focus:ring-green-500" />
+                <span className="text-sm font-medium text-gray-600">🗑 Убрать слова-паразиты</span>
               </label>
               <button
                 onClick={handleBatchRender}

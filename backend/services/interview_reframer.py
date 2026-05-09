@@ -97,7 +97,7 @@ class InterviewReframer:
             from mediapipe.tasks.python import vision
             opts = vision.FaceDetectorOptions(
                 base_options=python.BaseOptions(model_asset_path=str(MODEL_PATH)),
-                min_detection_confidence=0.45,
+                min_detection_confidence=0.65,
             )
             self._detector = vision.FaceDetector.create_from_options(opts)
             self._mp = mp

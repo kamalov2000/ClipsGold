@@ -93,11 +93,7 @@ def _verify_simple_token(token: str) -> str:
     except _JWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token.")
 
-# In-memory storage for clip candidates (Human-in-the-Loop architecture)
-clip_candidates_store: Dict[str, List[Dict]] = {}
-
-# In-memory storage for transcriptions
-transcription_store: Dict[str, Dict] = {}
+from services.redis_store import clip_candidates_store, transcription_store
 
 # WebSocket connection manager for progress tracking
 class ConnectionManager:
@@ -172,6 +168,7 @@ async def _render_worker():
                 start_time_override=job.get("start_time_override"),
                 end_time_override=job.get("end_time_override"),
                 render_mode=job.get("render_mode", "auto"),
+                enable_filler_removal=job.get("enable_filler_removal", False),
             )
             download_path = f"/download-clip/{job['file_id']}/{result['clip_id']}"
             await manager.send_progress(task_id, {
@@ -501,8 +498,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:3000").split(","),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Request-ID"],
 )
 app.add_middleware(CorrelationIdMiddleware)
 
@@ -1223,16 +1220,24 @@ async def json_login(body: _SimpleLoginRequest, db=Depends(get_db)):
 
 
 @app.websocket("/ws/render-progress/{task_id}")
-async def websocket_render_progress(websocket: WebSocket, task_id: str):
-    """
-    WebSocket endpoint for real-time render progress updates.
-    Frontend connects here to receive progress updates during video rendering.
-    """
+async def websocket_render_progress(
+    websocket: WebSocket,
+    task_id: str,
+    token: Optional[str] = Query(default=None),
+):
+    """WebSocket endpoint for real-time render progress updates."""
+    if not token:
+        await websocket.close(code=4401)
+        return
+    try:
+        _verify_simple_token(token)
+    except HTTPException:
+        await websocket.close(code=4401)
+        return
+
     await manager.connect(task_id, websocket)
     try:
-        # Keep connection alive and wait for messages
         while True:
-            # Receive messages (if any) to detect disconnection
             data = await websocket.receive_text()
             if data == "ping":
                 await websocket.send_text("pong")
@@ -1575,11 +1580,19 @@ async def download_file(
     )
 
 
+def _safe_path(directory: Path, filename: str) -> Path:
+    """Resolve path and reject traversal attempts."""
+    resolved = (directory / filename).resolve()
+    if not resolved.is_relative_to(directory.resolve()):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    return resolved
+
+
 @app.get("/clips/{filename}")
 @limiter.limit("120/hour")
-async def download_clip(request: Request, filename: str):
+async def serve_clip(request: Request, filename: str):
     """Serve rendered clip files for download"""
-    clip_path = CLIPS_DIR / filename
+    clip_path = _safe_path(CLIPS_DIR, filename)
     if not clip_path.exists():
         raise HTTPException(status_code=404, detail="Clip not found")
     return FileResponse(
@@ -1593,7 +1606,7 @@ async def download_clip(request: Request, filename: str):
 @limiter.limit("200/hour")
 async def get_thumbnail(request: Request, filename: str):
     """Serve thumbnail images for candidates"""
-    thumbnail_path = THUMBNAILS_DIR / filename
+    thumbnail_path = _safe_path(THUMBNAILS_DIR, filename)
     if not thumbnail_path.exists():
         raise HTTPException(status_code=404, detail="Thumbnail not found")
     return FileResponse(
@@ -1990,6 +2003,7 @@ class RenderClipRequest(BaseModel):
     start_time: Optional[float] = None  # User-edited start time override (seconds)
     end_time: Optional[float] = None  # User-edited end time override (seconds)
     render_mode: str = "auto"  # "auto" | "face_crop" | "blur_background"
+    enable_filler_removal: bool = False  # Remove filler words (ну, это, короче, …)
 
 
 @app.post("/extract-clips/{file_id}")
@@ -2200,7 +2214,10 @@ async def extract_viral_clips(
 async def download_clip(
     file_id: str,
     clip_id: int,
+    current_user: "User" = Depends(get_current_user),
 ):
+    if not re.fullmatch(r"[0-9a-f\-]{36}", file_id):
+        raise HTTPException(status_code=400, detail="Invalid file ID")
     # Try to find clip with any pattern (legacy, suffixed, or hashed)
     # First try exact match (legacy)
     clip_filename = f"{file_id}_clip_{clip_id}_VIRAL_GOLD.mp4"
@@ -2281,6 +2298,7 @@ async def render_clip_with_progress(
             "start_time_override": request.start_time,
             "end_time_override": request.end_time,
             "render_mode": request.render_mode,
+            "enable_filler_removal": request.enable_filler_removal,
         }
         print(f"  -> Queueing job with task_id={task_id}")
         # Snapshot active count; under asyncio single-thread model this is safe at await boundary

@@ -12,23 +12,7 @@ from fastapi import HTTPException
 from subtitle_generator_v2 import create_subtitle_generator
 from services.social_meta import generate_social_metadata
 from emoji_overlay import extract_emojis_from_metadata, create_multi_emoji_sequence
-
-
-def get_face_crop_window(
-    source_width: int, source_height: int, face_x_center: float
-) -> Tuple[int, int, int]:
-    """
-    Compute a 9:16 crop window centered on a face, no zoom.
-    Returns (x_offset, crop_width, crop_height).
-    """
-    crop_width = int(source_height * 9 / 16)
-    if crop_width % 2 == 1:
-        crop_width += 1  # libx264 requires even dimensions
-    crop_height = source_height
-    x_offset = int(face_x_center - crop_width / 2)
-    x_offset = max(0, min(x_offset, source_width - crop_width))
-    x_offset = (x_offset // 2) * 2
-    return x_offset, crop_width, crop_height
+from services.interview_reframer import get_face_crop_window
 
 
 def _probe_source_dimensions(input_file: Path) -> Tuple[Optional[int], Optional[int]]:
@@ -127,6 +111,7 @@ async def render_single_clip_with_progress(
     end_time_override: Optional[float] = None,
     subtitle_language: str = "auto",
     render_mode: str = "auto",
+    enable_filler_removal: bool = False,
 ):
     """
     Render a single clip with WebSocket progress tracking.
@@ -323,6 +308,22 @@ async def render_single_clip_with_progress(
             )
         except Exception as e:
             print(f"  [WARN] Jump-cut detection failed: {e}")
+
+    # ── Step 8b: Filler Word Removal ────────────────────────────────────
+    if enable_filler_removal and transcription_data and not jump_cut_segments:
+        try:
+            from services.pipeline_upgrades import find_filler_segments, build_keep_segments_without_fillers
+            filler_ivs = find_filler_segments(
+                transcription_data, clip["start_time"], clip["end_time"]
+            )
+            if filler_ivs:
+                clip_dur = clip["end_time"] - clip["start_time"]
+                filler_segs = build_keep_segments_without_fillers(clip_dur, filler_ivs)
+                if filler_segs:
+                    jump_cut_segments = filler_segs
+                    print(f"  -> Filler removal: {len(filler_ivs)} words removed, {len(filler_segs)} keep-segments")
+        except Exception as e:
+            print(f"  [WARN] Filler removal failed: {e}")
 
     # ── Step 5: Auto-SFX ────────────────────────────────────────────────
     sfx_path = None

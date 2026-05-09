@@ -24,6 +24,24 @@ _SYSTEM_PROMPT = (
 )
 
 
+_FEW_SHOT_EXAMPLES = """## EXAMPLES of high-scoring clips:
+
+Example 1 — "surprise" emotion, "counter_intuitive" structure:
+  Transcript excerpt: "People think eating less is the key to losing weight, but I gained 20 pounds doing exactly that."
+  → Hook: "EATING LESS MADE ME FAT" | virality_score: 9
+
+Example 2 — "conflict" emotion, "twist" structure:
+  Transcript excerpt: "My co-founder and I had a meeting and he said, 'we have 30 days of runway.' That was yesterday."
+  → Hook: "30 DAYS TO SURVIVE" | virality_score: 9
+
+Example 3 — "laugh" emotion, "story_arc" structure:
+  Transcript excerpt: "I practiced the speech for a month. Walked on stage. Said 'Thank you' and walked off."
+  → Hook: "WORST SPEECH EVER" | virality_score: 8
+
+These examples show the level of specificity, emotional punch, and hook creativity expected.
+"""
+
+
 def _build_analysis_prompt(
     transcription: str,
     video_duration: float,
@@ -33,6 +51,7 @@ def _build_analysis_prompt(
 
 Video duration: {video_duration:.1f} seconds ({video_duration / 60:.1f} minutes)
 
+{_FEW_SHOT_EXAMPLES}
 ## TRANSCRIPT:
 {transcription}
 
