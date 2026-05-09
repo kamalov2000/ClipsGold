@@ -135,6 +135,11 @@ render_queue: asyncio.Queue = asyncio.Queue()
 _active_renders: int = 0
 _active_renders_lock = asyncio.Lock()
 
+# In-memory job registry — keyed by task_id, capped at 500 entries.
+# Each entry mirrors the job dict plus status / progress / timestamps.
+_render_jobs_registry: Dict[str, dict] = {}
+_REGISTRY_MAX = 500
+
 
 async def _render_worker():
     """Worker that processes render jobs from the queue (RENDER_WORKERS run concurrently)."""
@@ -145,6 +150,10 @@ async def _render_worker():
         async with _active_renders_lock:
             global _active_renders
             _active_renders += 1
+        # Mark job as running in registry
+        if task_id in _render_jobs_registry:
+            _render_jobs_registry[task_id]["status"] = "running"
+            _render_jobs_registry[task_id]["started_at"] = _datetime.utcnow().isoformat()
         try:
             await manager.send_progress(task_id, {"status": "rendering_started"})
             result = await render_single_clip_with_progress(
@@ -182,6 +191,16 @@ async def _render_worker():
                 "source_width": result.get("source_width"),
                 "source_height": result.get("source_height"),
             })
+            # Update registry with completed status
+            if task_id in _render_jobs_registry:
+                _render_jobs_registry[task_id].update({
+                    "status": "done",
+                    "progress": 100,
+                    "clip_id": result["clip_id"],
+                    "filename": result["filename"],
+                    "title": result.get("title", ""),
+                    "completed_at": _datetime.utcnow().isoformat(),
+                })
             # Telegram notification (best-effort, runs in thread pool)
             asyncio.get_event_loop().run_in_executor(
                 None,
@@ -197,6 +216,13 @@ async def _render_worker():
             print(f"❌ Render failed: {err_msg}")
             traceback.print_exc()
             await manager.send_progress(task_id, {"status": "error", "error": err_msg})
+            # Update registry with error status
+            if task_id in _render_jobs_registry:
+                _render_jobs_registry[task_id].update({
+                    "status": "error",
+                    "error": err_msg,
+                    "completed_at": _datetime.utcnow().isoformat(),
+                })
         finally:
             async with _active_renders_lock:
                 _active_renders -= 1
@@ -2283,6 +2309,14 @@ async def render_clip_with_progress(
     try:
         print(f"🎬 Render request received: file_id={request.file_id}, clip_index={request.clip_index}")
         task_id = str(uuid.uuid4())
+        # Resolve title from clip_candidates_store for display in /jobs
+        _candidates = clip_candidates_store.get(request.file_id, [])
+        _clip_title = ""
+        try:
+            if _candidates and request.clip_index < len(_candidates):
+                _clip_title = _candidates[request.clip_index].get("title", "")
+        except Exception:
+            pass
         job = {
             "task_id": task_id,
             "file_id": request.file_id,
@@ -2299,6 +2333,31 @@ async def render_clip_with_progress(
             "end_time_override": request.end_time,
             "render_mode": request.render_mode,
             "enable_filler_removal": request.enable_filler_removal,
+            "owner_id": str(current_user.id),
+            "title": _clip_title,
+            "clip_total": len(_candidates) if _candidates else 0,
+        }
+        # Register job for GET /jobs tracking
+        if len(_render_jobs_registry) >= _REGISTRY_MAX:
+            # Evict the oldest done/error entry to stay under cap
+            _terminal = [tid for tid, j in _render_jobs_registry.items()
+                         if j.get("status") in ("done", "error")]
+            if _terminal:
+                del _render_jobs_registry[_terminal[0]]
+            elif _render_jobs_registry:
+                del _render_jobs_registry[next(iter(_render_jobs_registry))]
+        _render_jobs_registry[task_id] = {
+            "job_id": task_id,
+            "task_id": task_id,
+            "file_id": request.file_id,
+            "clip_index": request.clip_index,
+            "clip_total": len(_candidates) if _candidates else 0,
+            "title": _clip_title,
+            "platform": request.platform,
+            "status": "queued",
+            "progress": 0,
+            "owner_id": str(current_user.id),
+            "queued_at": _datetime.utcnow().isoformat(),
         }
         print(f"  -> Queueing job with task_id={task_id}")
         # Snapshot active count; under asyncio single-thread model this is safe at await boundary
@@ -2323,6 +2382,146 @@ async def render_clip_with_progress(
         print(f"❌ ERROR in render-clip endpoint: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Render request failed: {str(e)}")
+
+
+@app.get("/jobs")
+async def get_render_jobs(
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Return current user's render jobs: queued, running, and recently completed/errored.
+    Jobs are kept in the in-memory registry for the lifetime of the process.
+    """
+    try:
+        owner_id = str(current_user.id)
+        jobs = [
+            {
+                "job_id": j["job_id"],
+                "file_id": j["file_id"],
+                "title": j.get("title", ""),
+                "status": j.get("status", "queued"),
+                "progress": j.get("progress", 0),
+                "clip_index": j.get("clip_index", 0),
+                "clip_total": j.get("clip_total", 0),
+                "platform": j.get("platform", ""),
+                "queued_at": j.get("queued_at"),
+                "started_at": j.get("started_at"),
+                "completed_at": j.get("completed_at"),
+            }
+            for j in reversed(list(_render_jobs_registry.values()))
+            if j.get("owner_id") == owner_id
+        ]
+        return {"jobs": jobs}
+    except Exception as exc:
+        log.warning("get_jobs_failed", error=str(exc))
+        return {"jobs": []}
+
+
+@app.get("/history")
+async def get_clip_history(
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Return current user's last 20 rendered clips, derived from the clips/ directory.
+    Clips are matched to the user via their Videos in the DB.
+    Falls back to returning all recent clips when DB lookup fails.
+    """
+    try:
+        owner_id = str(current_user.id)
+
+        # Collect file_ids owned by this user from DB
+        owned_file_ids: set = set()
+        try:
+            with SessionLocal() as db:
+                rows = db.query(Video.file_id).filter(Video.owner_id == owner_id).all()
+                owned_file_ids = {r.file_id for r in rows}
+        except Exception as exc:
+            log.warning("history_db_lookup_failed", error=str(exc))
+
+        clips = []
+        try:
+            clip_files = sorted(
+                CLIPS_DIR.glob("*_VIRAL_GOLD.mp4"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+        except Exception:
+            clip_files = []
+
+        import re as _re
+        _clip_pattern = _re.compile(
+            r"^([0-9a-f\-]{36})_clip_(\d+).*_VIRAL_GOLD\.mp4$"
+        )
+
+        for clip_path in clip_files:
+            if len(clips) >= 20:
+                break
+            m = _clip_pattern.match(clip_path.name)
+            if not m:
+                continue
+            file_id, clip_num = m.group(1), int(m.group(2))
+
+            # If we have DB results, filter to this user; otherwise include all
+            if owned_file_ids and file_id not in owned_file_ids:
+                continue
+
+            # Try to enrich from analysis JSON
+            title = ""
+            virality = None
+            platform = ""
+            caption_style = ""
+            language = ""
+            duration = None
+            try:
+                for analysis_suffix in ("_analysis.json", "_viral_analysis.json"):
+                    analysis_path = OUTPUT_DIR / f"{file_id}{analysis_suffix}"
+                    if analysis_path.exists():
+                        with analysis_path.open("r", encoding="utf-8") as f:
+                            candidates = json.load(f)
+                        idx = clip_num - 1  # clip_num is 1-based
+                        if isinstance(candidates, list) and 0 <= idx < len(candidates):
+                            cand = candidates[idx]
+                            title = cand.get("title", "")
+                            virality = cand.get("virality_score") or cand.get("score")
+                            end_t = cand.get("end_time", 0)
+                            start_t = cand.get("start_time", 0)
+                            if end_t and start_t:
+                                duration = round(end_t - start_t, 1)
+                        break
+            except Exception:
+                pass
+
+            # Try to get platform/language from job registry (recent jobs)
+            for j in _render_jobs_registry.values():
+                if j.get("file_id") == file_id and j.get("clip_index") == clip_num - 1:
+                    platform = j.get("platform", "")
+                    caption_style = j.get("subtitle_style", "")
+                    language = j.get("subtitle_language", "")
+                    break
+
+            try:
+                mtime = clip_path.stat().st_mtime
+                created_at = _datetime.utcfromtimestamp(mtime).strftime("%Y-%m-%dT%H:%M:%SZ")
+            except Exception:
+                created_at = None
+
+            clips.append({
+                "file_id": file_id,
+                "clip_id": f"clip_{clip_num:03d}",
+                "title": title,
+                "platform": platform,
+                "caption_style": caption_style,
+                "language": language,
+                "virality": virality,
+                "duration": duration,
+                "created_at": created_at,
+                "filename": clip_path.name,
+            })
+
+        return {"clips": clips}
+    except Exception as exc:
+        log.warning("get_history_failed", error=str(exc))
+        return {"clips": []}
 
 
 @app.delete("/cleanup/{file_id}")

@@ -157,18 +157,19 @@ export default function SettingsPage() {
   }
 
   const handleDeleteAccount = async () => {
+    if (typeof window === 'undefined') return
     const confirmed = window.confirm('Удалить аккаунт? Это нельзя откатить. Email освободится через 30 дней.')
     if (!confirmed) return
     try {
       await api.delete('/auth/account')
-      window.location.href = '/'
+      if (typeof window !== 'undefined') window.location.href = '/'
     } catch (e: any) {
       showToast(e?.response?.data?.detail || 'Ошибка при удалении')
     }
   }
 
   const handleNotifyMe = () => {
-    localStorage.setItem('cg_notify_integrations', '1')
+    if (typeof window !== 'undefined') localStorage.setItem('cg_notify_integrations', '1')
     setNotifyPressed(true)
     showToast('Запомнили! Напишем первым 🦖')
   }

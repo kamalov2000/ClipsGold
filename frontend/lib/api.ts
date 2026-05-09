@@ -9,26 +9,48 @@ export const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000'
 
 export const api = axios.create({ baseURL: API_BASE })
 
+// ── SSR-safe browser API helpers ──────────────────────────────────────────
+
+function ls(key: string): string | null {
+  if (typeof window === 'undefined') return null
+  return localStorage.getItem(key)
+}
+
+function lsSet(key: string, value: string) {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(key, value)
+}
+
+function lsRemove(key: string) {
+  if (typeof window === 'undefined') return
+  localStorage.removeItem(key)
+}
+
+function redirect(path: string) {
+  if (typeof window === 'undefined') return
+  window.location.href = path
+}
+
 // ── Token helpers ──────────────────────────────────────────────────────────
 
 export function saveToken(accessToken: string, refreshToken?: string) {
-  localStorage.setItem('cg_access_token', accessToken)
-  if (refreshToken) localStorage.setItem('cg_refresh_token', refreshToken)
+  lsSet('cg_access_token', accessToken)
+  if (refreshToken) lsSet('cg_refresh_token', refreshToken)
 }
 
 export function clearToken() {
-  localStorage.removeItem('cg_access_token')
-  localStorage.removeItem('cg_refresh_token')
+  lsRemove('cg_access_token')
+  lsRemove('cg_refresh_token')
 }
 
 export function getToken(): string | null {
-  return localStorage.getItem('cg_access_token')
+  return ls('cg_access_token')
 }
 
 // ── Request interceptor: inject auth header ────────────────────────────────
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('cg_access_token')
+  const token = ls('cg_access_token')
   if (token) {
     config.headers = config.headers ?? {}
     config.headers['Authorization'] = `Bearer ${token}`
@@ -45,14 +67,21 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const original = error.config
+
     if (error.response?.status !== 401 || original._retry) {
       return Promise.reject(error)
     }
 
-    const refreshToken = localStorage.getItem('cg_refresh_token')
+    // Don't redirect for auth-check endpoints — 401 is expected for guests
+    const url = original?.url || ''
+    if (url.includes('/auth/me') || url.includes('/auth/refresh')) {
+      return Promise.reject(error)
+    }
+
+    const refreshToken = ls('cg_refresh_token')
     if (!refreshToken) {
       clearToken()
-      window.location.href = '/'
+      redirect('/')
       return Promise.reject(error)
     }
 
@@ -87,7 +116,7 @@ api.interceptors.response.use(
       clearToken()
       _refreshQueue.forEach((cb) => cb(null))
       _refreshQueue = []
-      window.location.href = '/'
+      redirect('/')
       return Promise.reject(error)
     } finally {
       _refreshing = false
