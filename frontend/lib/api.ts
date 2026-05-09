@@ -26,9 +26,9 @@ function lsRemove(key: string) {
   localStorage.removeItem(key)
 }
 
-function redirect(path: string) {
+function signalAuthRequired() {
   if (typeof window === 'undefined') return
-  window.location.href = path
+  window.dispatchEvent(new CustomEvent('cg:auth-required'))
 }
 
 // ── Token helpers ──────────────────────────────────────────────────────────
@@ -81,7 +81,7 @@ api.interceptors.response.use(
     const refreshToken = ls('cg_refresh_token')
     if (!refreshToken) {
       clearToken()
-      redirect('/')
+      signalAuthRequired()
       return Promise.reject(error)
     }
 
@@ -116,7 +116,7 @@ api.interceptors.response.use(
       clearToken()
       _refreshQueue.forEach((cb) => cb(null))
       _refreshQueue = []
-      redirect('/')
+      signalAuthRequired()
       return Promise.reject(error)
     } finally {
       _refreshing = false
