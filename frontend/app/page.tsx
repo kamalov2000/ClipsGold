@@ -236,7 +236,7 @@ function Doodle({ symbol, style }: { symbol: string; style: React.CSSProperties 
 /* ─── main component ─── */
 export default function HomePage() {
   const router = useRouter()
-  const [ready, setReady] = useState(false)
+  const [mounted, setMounted] = useState(false)
   const [activeTab, setActiveTab] = useState<'yt' | 'file'>('yt')
   const [dropState, setDropState] = useState<{ dragging: boolean; fileName: string | null; fileSize: string | null }>({ dragging: false, fileName: null, fileSize: null })
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -245,9 +245,9 @@ export default function HomePage() {
     const token = localStorage.getItem('cg_access_token')
     if (token) {
       router.replace('/app')
-    } else {
-      setReady(true)
+      return
     }
+    setMounted(true)
   }, [router])
 
   function handleFileDrop(e: React.DragEvent) {
@@ -264,14 +264,8 @@ export default function HomePage() {
     setDropState({ dragging: false, fileName: f.name, fileSize: (f.size / 1024 / 1024).toFixed(1) + ' МБ · готово к рендеру' })
   }
 
-  if (!ready) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-start', minHeight: '100vh', paddingTop: '20vh' }}>
-        <div style={{ width: 40, height: 40, border: '3px solid var(--teal)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'lp-spin 0.8s linear infinite' }} />
-        <style>{`@keyframes lp-spin { to { transform: rotate(360deg); } }`}</style>
-      </div>
-    )
-  }
+  // Server renders null → client also renders null initially → no hydration mismatch (#418)
+  if (!mounted) return null
 
   return (
     <>
