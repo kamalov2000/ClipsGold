@@ -250,25 +250,40 @@ app.include_router(factory_router)
 
 
 async def _auto_cleanup_worker():
-    """Delete files older than 24 hours from uploads/, outputs/, and temp/ every 60 minutes."""
+    """Periodically delete old files to keep disk usage low.
+
+    TTLs:
+      uploads/  — 4 h  (raw source video, large, not needed after processing)
+      clips/    — 24 h (rendered clips, user may want to re-download same day)
+      outputs/  — 24 h (JSON/subtitles, small, but no reason to keep forever)
+    Runs every 30 minutes.
+    """
     import time as _time
     while True:
-        await asyncio.sleep(3600)  # wait 60 minutes between runs
-        cutoff = _time.time() - 86400  # 24 hours ago
+        await asyncio.sleep(1800)  # every 30 minutes
+        now = _time.time()
+        schedule = [
+            (UPLOAD_DIR,          4 * 3600),   # 4 h — large raw videos
+            (CLIPS_DIR,          24 * 3600),   # 24 h — rendered clips
+            (CLIPS_DIR / "temp", 24 * 3600),
+            (OUTPUT_DIR,         24 * 3600),
+        ]
         cleaned = 0
-        dirs_to_scan = [UPLOAD_DIR, OUTPUT_DIR, CLIPS_DIR / "temp"]
-        for directory in dirs_to_scan:
+        freed_mb = 0.0
+        for directory, ttl in schedule:
             if not directory.exists():
                 continue
+            cutoff = now - ttl
             for file_path in directory.iterdir():
                 if file_path.is_file() and file_path.stat().st_mtime < cutoff:
                     try:
+                        freed_mb += file_path.stat().st_size / 1_048_576
                         file_path.unlink()
                         cleaned += 1
                     except Exception as e:
                         print(f"[WARN] Auto-cleanup: could not delete {file_path}: {e}")
         if cleaned:
-            print(f"🧹 Auto-cleanup: deleted {cleaned} file(s) older than 24h")
+            print(f"🧹 Auto-cleanup: deleted {cleaned} file(s), freed {freed_mb:.1f} MB")
 
 
 def _restore_transcription_store() -> None:
