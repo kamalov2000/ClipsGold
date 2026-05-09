@@ -8,11 +8,30 @@ interface UserProfile {
   email: string
   name?: string
   plan?: string
+  avatar_url?: string
 }
 
 interface TelegramSettings {
   telegram_chat_id?: string
   telegram_enabled?: boolean
+}
+
+interface UserSettings {
+  telegram_chat_id?: string
+  telegram_enabled?: boolean
+  default_platform?: string
+  default_caption?: string
+  default_crop?: string
+  default_lang?: string
+  default_clip_count?: string
+  default_clip_length?: string
+  jump_cut?: boolean
+  auto_hashtags?: boolean
+  watermark?: boolean
+  notif_clip_ready?: boolean
+  notif_factory_done?: boolean
+  notif_features?: boolean
+  notif_marketing?: boolean
 }
 
 export default function SettingsPage() {
@@ -28,16 +47,17 @@ export default function SettingsPage() {
   const [notifToggles, setNotifToggles] = useState([true, true, false, false])
   const [dirty, setDirty] = useState(false)
 
-  // Defaults state
-  const [defPlatform, setDefPlatform] = useState('tiktok')
-  const [defCaption, setDefCaption] = useState('podcast')
-  const [defCrop, setDefCrop] = useState('face')
-  const [defLang, setDefLang] = useState('ru')
-  const [defCount, setDefCount] = useState('5')
-  const [defLength, setDefLength] = useState('30-60')
+  // Defaults state — initialized empty; hydrated from GET /settings on load
+  const [defPlatform, setDefPlatform] = useState('')
+  const [defCaption, setDefCaption] = useState('')
+  const [defCrop, setDefCrop] = useState('')
+  const [defLang, setDefLang] = useState('')
+  const [defCount, setDefCount] = useState('')
+  const [defLength, setDefLength] = useState('')
   const [togJumpCut, setTogJumpCut] = useState(true)
   const [togHashtags, setTogHashtags] = useState(true)
   const [togWatermark, setTogWatermark] = useState(false)
+  const [settingsLoaded, setSettingsLoaded] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -47,8 +67,42 @@ export default function SettingsPage() {
       } catch {}
       try {
         const res = await api.get('/settings')
-        setTgSettings(res.data || {})
-      } catch {}
+        const s: UserSettings = res.data || {}
+        setTgSettings({ telegram_chat_id: s.telegram_chat_id, telegram_enabled: s.telegram_enabled })
+        // Hydrate defaults from API; fall back to sensible UI defaults only if API returns nothing
+        setDefPlatform(s.default_platform || 'tiktok')
+        setDefCaption(s.default_caption || 'podcast')
+        setDefCrop(s.default_crop || 'face')
+        setDefLang(s.default_lang || 'ru')
+        setDefCount(s.default_clip_count || '5')
+        setDefLength(s.default_clip_length || '30-60')
+        if (s.jump_cut !== undefined) setTogJumpCut(s.jump_cut)
+        if (s.auto_hashtags !== undefined) setTogHashtags(s.auto_hashtags)
+        if (s.watermark !== undefined) setTogWatermark(s.watermark)
+        if (
+          s.notif_clip_ready !== undefined ||
+          s.notif_factory_done !== undefined ||
+          s.notif_features !== undefined ||
+          s.notif_marketing !== undefined
+        ) {
+          setNotifToggles([
+            s.notif_clip_ready ?? true,
+            s.notif_factory_done ?? true,
+            s.notif_features ?? false,
+            s.notif_marketing ?? false,
+          ])
+        }
+      } catch {
+        // API not available — use UI defaults
+        setDefPlatform('tiktok')
+        setDefCaption('podcast')
+        setDefCrop('face')
+        setDefLang('ru')
+        setDefCount('5')
+        setDefLength('30-60')
+      } finally {
+        setSettingsLoaded(true)
+      }
       setNotifyPressed(localStorage.getItem('cg_notify_integrations') === '1')
     }
     load()
@@ -73,6 +127,10 @@ export default function SettingsPage() {
         jump_cut: togJumpCut,
         auto_hashtags: togHashtags,
         watermark: togWatermark,
+        notif_clip_ready: notifToggles[0],
+        notif_factory_done: notifToggles[1],
+        notif_features: notifToggles[2],
+        notif_marketing: notifToggles[3],
       })
     } catch {}
     setDirty(false)
@@ -331,7 +389,11 @@ export default function SettingsPage() {
             </h2>
             <div style={{color:'var(--ink-soft)',marginTop:2,fontSize:16}}>Эти параметры подставятся для каждого нового клипа. Изменить можно на /render.</div>
 
-            <div className="def-grid" style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:14,marginTop:18}}>
+            {!settingsLoaded && (
+              <div style={{marginTop:18,color:'var(--ink-soft)',fontSize:15}}>Загрузка...</div>
+            )}
+
+            <div className="def-grid" style={{display: settingsLoaded ? 'grid' : 'none',gridTemplateColumns:'repeat(2,1fr)',gap:14,marginTop:18}}>
               <label style={{display:'grid',gap:4}}>
                 <span className="def-lbl">Платформа</span>
                 <select style={selectStyle} value={defPlatform} onChange={e => { setDefPlatform(e.target.value); markDirty() }}>
@@ -390,7 +452,7 @@ export default function SettingsPage() {
               </label>
             </div>
 
-            <div style={{marginTop:18,display:'flex',flexDirection:'column',gap:0}}>
+            <div style={{marginTop:18,display: settingsLoaded ? 'flex' : 'none',flexDirection:'column',gap:0}}>
               <div style={{display:'flex',alignItems:'center',gap:14,marginTop:14}}>
                 {togglePill(togJumpCut, () => { setTogJumpCut(v => !v); markDirty() })}
                 <div>

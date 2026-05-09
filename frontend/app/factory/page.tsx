@@ -51,24 +51,9 @@ const NICHE_CONFIG: { [key: string]: { ico: string; label: string } } = {
   finance: { ico: '💰', label: 'Финансы' },
 }
 
-// 7-day static data (no backend endpoint yet)
-const perfData = [
-  { day: 'Пн', clips: 12, isWeekend: false },
-  { day: 'Вт', clips: 8, isWeekend: false },
-  { day: 'Ср', clips: 15, isWeekend: false },
-  { day: 'Чт', clips: 10, isWeekend: false },
-  { day: 'Пт', clips: 18, isWeekend: false },
-  { day: 'Сб', clips: 6, isWeekend: true },
-  { day: 'Вс', clips: 4, isWeekend: true },
-]
-const maxClips = Math.max(...perfData.map(d => d.clips))
-
-const HOUR_STATES: Record<number, 'idle' | 'busy' | 'peak' | 'plan'> = {
-  0: 'idle', 1: 'idle', 2: 'idle', 3: 'idle', 4: 'idle', 5: 'idle',
-  6: 'busy', 7: 'busy', 8: 'peak', 9: 'peak', 10: 'peak', 11: 'busy',
-  12: 'busy', 13: 'peak', 14: 'peak', 15: 'busy', 16: 'busy', 17: 'peak',
-  18: 'busy', 19: 'busy', 20: 'idle', 21: 'idle', 22: 'idle', 23: 'idle',
-}
+const defaultHourStates: Record<number, 'idle' | 'busy' | 'peak' | 'plan'> = Object.fromEntries(
+  Array.from({ length: 24 }, (_, h) => [h, 'idle' as const])
+) as Record<number, 'idle' | 'busy' | 'peak' | 'plan'>
 
 const hourStateStyle: Record<'idle' | 'busy' | 'peak' | 'plan', { background: string; color: string }> = {
   idle: { background: '#fff', color: 'var(--ink-soft)' },
@@ -110,6 +95,8 @@ export default function FactoryPage() {
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [factoryOn, setFactoryOn] = useState(true)
   const [activeNiches, setActiveNiches] = useState<Set<string>>(new Set())
+  const [perfData, setPerfData] = useState<{ day: string; clips: number; isWeekend: boolean }[]>([])
+  const [hourStates, setHourStates] = useState<Record<number, 'idle' | 'busy' | 'peak' | 'plan'>>(defaultHourStates)
 
   const fetchData = async () => {
     try {
@@ -124,10 +111,20 @@ export default function FactoryPage() {
       setScheduler(schRes.data)
       setFactoryOn(schRes.data.running)
       if (s.niches) setActiveNiches(new Set(Object.keys(s.niches).filter(k => s.niches[k] > 0)))
+      if (sRes.data.weekly) setPerfData(sRes.data.weekly)
     } catch {
       // silent
     } finally {
       setLoading(false)
+    }
+
+    try {
+      const schedRes = await api.get('/factory/schedule')
+      if (schedRes.data?.hours) {
+        setHourStates(schedRes.data.hours as Record<number, 'idle' | 'busy' | 'peak' | 'plan'>)
+      }
+    } catch {
+      setHourStates(defaultHourStates)
     }
   }
 
@@ -163,7 +160,8 @@ export default function FactoryPage() {
   const chartPaddingTop = 22  // room for count labels above bars
   const chartPaddingBottom = 24  // room for day labels
   const barAreaHeight = 160
-  const svgWidth = chartPaddingLeft + perfData.length * (barWidth + barGap) - barGap + chartPaddingRight
+  const maxClips = perfData.length > 0 ? Math.max(...perfData.map(d => d.clips)) : 1
+  const svgWidth = chartPaddingLeft + Math.max(perfData.length, 1) * (barWidth + barGap) - barGap + chartPaddingRight
   const svgHeight = chartPaddingTop + barAreaHeight + chartPaddingBottom
 
   const barX = (i: number) => chartPaddingLeft + i * (barWidth + barGap)
@@ -176,6 +174,26 @@ export default function FactoryPage() {
     const cy = barY(d.clips)
     return `${cx},${cy}`
   }).join(' ')
+
+  // Idle hours range text derived from schedule data
+  const idleHoursList = Array.from({ length: 24 }, (_, h) => h).filter(h => hourStates[h] === 'idle')
+  const idleRangeText = (() => {
+    if (idleHoursList.length === 0) return null
+    // Find contiguous runs
+    const runs: string[] = []
+    let start = idleHoursList[0]
+    let prev = idleHoursList[0]
+    for (let i = 1; i < idleHoursList.length; i++) {
+      const h = idleHoursList[i]
+      if (h !== prev + 1) {
+        runs.push(`${String(start).padStart(2,'0')}:00 до ${String(prev + 1).padStart(2,'0')}:00`)
+        start = h
+      }
+      prev = h
+    }
+    runs.push(`${String(start).padStart(2,'0')}:00 до ${String(prev + 1).padStart(2,'0')}:00`)
+    return `Динозаврик отдыхает с ${runs.join(', ')}`
+  })()
 
   return (
     <>
@@ -270,63 +288,69 @@ export default function FactoryPage() {
           <h2 style={{fontFamily:'"Caveat",cursive',fontSize:32,margin:'0 0 4px'}}>Производительность · 7 дней</h2>
           <div style={{color:'var(--ink-soft)',fontSize:15,marginBottom:14}}>Сколько клипов в день успеваем сделать.</div>
 
-          <div style={{overflowX:'auto'}}>
-            <svg
-              viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-              width={svgWidth}
-              height={svgHeight}
-              style={{display:'block',fontFamily:'"Patrick Hand",sans-serif'}}
-            >
-              {/* Bars */}
-              {perfData.map((d, i) => {
-                const x = barX(i)
-                const h = barH(d.clips)
-                const y = barY(d.clips)
-                const fill = d.isWeekend ? '#FF8FA3' : '#FFD166'
-                return (
-                  <g key={d.day}>
-                    <rect
-                      x={x} y={y} width={barWidth} height={h}
-                      fill={fill} stroke="#3A2E2A" strokeWidth="2"
-                      rx="4" ry="4"
-                    />
-                    {/* Count label above bar */}
-                    <text
-                      x={x + barWidth / 2} y={y - 5}
-                      textAnchor="middle"
-                      fontSize="13"
-                      fill="#3A2E2A"
-                      fontFamily='"Patrick Hand",sans-serif'
-                    >
-                      {d.clips}
-                    </text>
-                    {/* Day label below bar */}
-                    <text
-                      x={x + barWidth / 2}
-                      y={svgHeight - 4}
-                      textAnchor="middle"
-                      fontSize="13"
-                      fill="#6B574F"
-                      fontFamily='"Patrick Hand",sans-serif'
-                    >
-                      {d.day}
-                    </text>
-                  </g>
-                )
-              })}
+          {perfData.length === 0 ? (
+            <div style={{fontFamily:'"Caveat",cursive',fontSize:22,color:'var(--ink-soft)',textAlign:'center',padding:'32px 0'}}>
+              Данные появятся после первых обработок 🦖
+            </div>
+          ) : (
+            <div style={{overflowX:'auto'}}>
+              <svg
+                viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+                width={svgWidth}
+                height={svgHeight}
+                style={{display:'block',fontFamily:'"Patrick Hand",sans-serif'}}
+              >
+                {/* Bars */}
+                {perfData.map((d, i) => {
+                  const x = barX(i)
+                  const h = barH(d.clips)
+                  const y = barY(d.clips)
+                  const fill = d.isWeekend ? '#FF8FA3' : '#FFD166'
+                  return (
+                    <g key={d.day}>
+                      <rect
+                        x={x} y={y} width={barWidth} height={h}
+                        fill={fill} stroke="#3A2E2A" strokeWidth="2"
+                        rx="4" ry="4"
+                      />
+                      {/* Count label above bar */}
+                      <text
+                        x={x + barWidth / 2} y={y - 5}
+                        textAnchor="middle"
+                        fontSize="13"
+                        fill="#3A2E2A"
+                        fontFamily='"Patrick Hand",sans-serif'
+                      >
+                        {d.clips}
+                      </text>
+                      {/* Day label below bar */}
+                      <text
+                        x={x + barWidth / 2}
+                        y={svgHeight - 4}
+                        textAnchor="middle"
+                        fontSize="13"
+                        fill="#6B574F"
+                        fontFamily='"Patrick Hand",sans-serif'
+                      >
+                        {d.day}
+                      </text>
+                    </g>
+                  )
+                })}
 
-              {/* Dashed trend line connecting bar tops */}
-              <polyline
-                points={trendPoints}
-                fill="none"
-                stroke="#3A2E2A"
-                strokeWidth="2"
-                strokeDasharray="4 5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </div>
+                {/* Dashed trend line connecting bar tops */}
+                <polyline
+                  points={trendPoints}
+                  fill="none"
+                  stroke="#3A2E2A"
+                  strokeWidth="2"
+                  strokeDasharray="4 5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+          )}
 
           {/* Legend */}
           <div style={{display:'flex',gap:18,marginTop:12,fontSize:15,color:'var(--ink-soft)',flexWrap:'wrap',alignItems:'center'}}>
@@ -339,7 +363,7 @@ export default function FactoryPage() {
               выходные
             </span>
             <span style={{marginLeft:'auto'}}>
-              Всего: <b style={{color:'var(--ink)'}}>73</b> клипа
+              Всего: <b style={{color:'var(--ink)'}}>{perfData.reduce((a, d) => a + d.clips, 0)}</b> клипа
             </span>
           </div>
         </div>
@@ -347,12 +371,14 @@ export default function FactoryPage() {
         {/* Schedule — today */}
         <div style={{border:'3px solid var(--ink)',boxShadow:'4px 5px 0 var(--ink)',borderRadius:'22px 26px 20px 24px / 20px 24px 26px 22px',padding:'20px 22px',marginBottom:24,background:'var(--paper)'}}>
           <h2 style={{fontFamily:'"Caveat",cursive',fontSize:32,margin:'0 0 4px'}}>Расписание · сегодня</h2>
-          <div style={{color:'var(--ink-soft)',fontSize:15,marginBottom:14}}>Динозаврик отдыхает с 02:00 до 06:00</div>
+          {idleRangeText && (
+            <div style={{color:'var(--ink-soft)',fontSize:15,marginBottom:14}}>{idleRangeText}</div>
+          )}
 
           {/* 24-hour grid — 8 columns */}
           <div style={{display:'grid',gridTemplateColumns:'repeat(8,1fr)',gap:6}}>
             {Array.from({length:24},(_,h) => {
-              const state = HOUR_STATES[h]
+              const state = hourStates[h] ?? 'idle'
               const st = hourStateStyle[state]
               const emoji = hourEmoji[state]
               return (
@@ -382,9 +408,11 @@ export default function FactoryPage() {
           </div>
 
           {/* Footer note + legend */}
-          <div style={{marginTop:10,fontSize:14,color:'var(--ink-soft)'}}>
-            Динозаврик отдыхает с 02:00 до 06:00
-          </div>
+          {idleRangeText && (
+            <div style={{marginTop:10,fontSize:14,color:'var(--ink-soft)'}}>
+              {idleRangeText}
+            </div>
+          )}
           <div style={{display:'flex',gap:14,marginTop:10,fontSize:15,color:'var(--ink-soft)',flexWrap:'wrap',alignItems:'center'}}>
             <span>🔥 пик</span>
             <span>⚡ работаем</span>

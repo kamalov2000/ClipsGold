@@ -268,8 +268,9 @@ export default function RenderPage() {
   }
 
   // ── Render bar meta ──────────────────────────────────────────────────────
+  const clipDuration = candidate ? Math.round(candidate.end_time - candidate.start_time) : 0
   const renderBarMeta = candidate
-    ? `⏱ ~14 сек · ✂ обрезка ${fmt(candidate.start_time)}–${fmt(candidate.end_time)} · 🎯 ${cropMode} · ✏ ${subtitleStyle} · ${language}`
+    ? `⏱ ~${fmt(clipDuration)} · ✂ обрезка ${fmt(candidate.start_time)}–${fmt(candidate.end_time)} · 🎯 ${cropMode} · ✏ ${subtitleStyle} · ${language}`
     : ''
 
   if (loading) {
@@ -399,7 +400,9 @@ export default function RenderPage() {
                   <b>0:00</b> / {candidate ? fmt(Math.round(candidate.end_time - candidate.start_time)) : '0:00'}
                 </div>
                 <div style={{ flex: 1 }} />
-                <div style={{ ...S.scrubTime, fontSize: 17 }}>🎯 хук 0:00–0:03</div>
+                {candidate && (
+                  <div style={{ ...S.scrubTime, fontSize: 17 }}>🎯 {fmt(candidate.start_time)}–{fmt(candidate.end_time)}</div>
+                )}
               </div>
               <div style={S.timeline}>
                 <div style={S.timelineWave} />

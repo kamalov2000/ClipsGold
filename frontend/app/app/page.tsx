@@ -707,12 +707,19 @@ function StudioPage() {
                 marginBottom: 24,
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', margin: '0 4px 14px' }}>
-                <h3 style={{ fontSize: 32 }}>Сейчас в работе</h3>
-                {jobs.length > 0 && (
-                  <span style={{ color: 'var(--ink-soft)', fontSize: 15 }}>2 рендера параллельно</span>
-                )}
-              </div>
+              {(() => {
+                const runningCount = jobs.filter(j => j.status === 'running').length
+                return (
+                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', margin: '0 4px 14px' }}>
+                    <h3 style={{ fontSize: 32 }}>Сейчас в работе</h3>
+                    {runningCount > 0 && (
+                      <span style={{ color: 'var(--ink-soft)', fontSize: 15 }}>
+                        {runningCount} рендер{runningCount > 1 ? 'а' : ''} в работе
+                      </span>
+                    )}
+                  </div>
+                )
+              })()}
 
               {/* Empty state */}
               {jobsLoaded && jobs.length === 0 && (
@@ -858,7 +865,7 @@ function StudioPage() {
                 <h3 style={{ fontSize: 32 }}>Готовые клипы</h3>
                 {clips.length > 0 && (
                   <span style={{ color: 'var(--ink-soft)', fontSize: 15 }}>
-                    за последние 7 дней · {clips.length} шт
+                    {clips.length} клипов
                   </span>
                 )}
               </div>

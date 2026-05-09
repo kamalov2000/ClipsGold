@@ -1,17 +1,34 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import AppNavbar from '@/components/AppNavbar'
+import { API_BASE } from '@/lib/api'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
+  const [userEmail, setUserEmail] = useState<string | undefined>(undefined)
 
   useEffect(() => {
     const token = localStorage.getItem('cg_access_token')
     if (!token) {
       router.replace('/login')
+      return
     }
+
+    fetch(`${API_BASE}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => {
+        if (!res.ok) return null
+        return res.json()
+      })
+      .then((data: { email?: string } | null) => {
+        if (data?.email) setUserEmail(data.email)
+      })
+      .catch(() => {
+        // non-fatal: avatar will show '?' fallback
+      })
   }, [router])
 
   return (
@@ -28,7 +45,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           `,
         }}
       >
-        <AppNavbar />
+        <AppNavbar userEmail={userEmail} />
         {children}
       </div>
     </>
