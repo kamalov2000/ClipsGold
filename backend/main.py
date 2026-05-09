@@ -1293,7 +1293,16 @@ def _run_yt_dlp_download(url: str, output_path: Path) -> dict:
     validate_resolved_ip("www.youtube.com")
 
     ydl_opts = {
-        'format': 'bestvideo[height>=2160][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height>=1440][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height>=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best',
+        'format': (
+            'bestvideo[height>=2160][ext=mp4]+bestaudio[ext=m4a]'
+            '/bestvideo[height>=2160]+bestaudio'
+            '/bestvideo[height>=1440][ext=mp4]+bestaudio[ext=m4a]'
+            '/bestvideo[height>=1440]+bestaudio'
+            '/bestvideo[height>=1080][ext=mp4]+bestaudio[ext=m4a]'
+            '/bestvideo[height>=1080]+bestaudio'
+            '/bestvideo+bestaudio'
+            '/best'
+        ),
         'outtmpl': str(output_path),
         'merge_output_format': 'mp4',
         'quiet': False,
@@ -1396,6 +1405,21 @@ async def download_youtube(
                 detail="Download failed - file not created. Check that FFmpeg is in PATH (needed for merging video+audio)."
             )
 
+        # Probe resolution so the frontend can warn if face-crop won't work
+        src_w, src_h = None, None
+        try:
+            probe = subprocess.run(
+                ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                 "-show_entries", "stream=width,height", "-of", "csv=p=0",
+                 str(output_path)],
+                capture_output=True, text=True, timeout=15,
+            )
+            parts = probe.stdout.strip().split(",")
+            if len(parts) == 2:
+                src_w, src_h = int(parts[0]), int(parts[1])
+        except Exception:
+            pass
+
         log.info("youtube_download_complete", file_id=file_id, duration=duration)
         return {
             "file_id": file_id,
@@ -1403,6 +1427,8 @@ async def download_youtube(
             "title": video_title,
             "duration": duration,
             "size": output_path.stat().st_size,
+            "source_width": src_w,
+            "source_height": src_h,
             "message": "YouTube video downloaded successfully"
         }
 

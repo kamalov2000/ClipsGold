@@ -115,12 +115,16 @@ def _compress_to_1080p(src: Path, dst: Path) -> Path:
     cmd = [
         "ffmpeg", "-y", "-i", str(src),
         "-vf", f"scale=-2:{MAX_VIDEO_HEIGHT}",
-        "-c:v", "libx264", "-preset", "fast",
+        "-c:v", "libx264", "-preset", "ultrafast",
         "-b:v", TARGET_BITRATE_VIDEO,
         "-c:a", "aac", "-b:a", TARGET_BITRATE_AUDIO,
         str(dst)
     ]
-    result = subprocess.run(cmd, capture_output=True, timeout=600)
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=1800)
+    except subprocess.TimeoutExpired:
+        log.warning(f"[compress] Timeout after 1800s, using original: {src.name}")
+        return src
     if result.returncode != 0:
         log.error(f"[compress] FFmpeg failed: {result.stderr.decode()[:300]}")
         return src  # fallback to original
@@ -293,7 +297,6 @@ class UniversalDownloader:
                 "--extract-audio",
                 "--audio-format", "mp3",
                 "--audio-quality", "0",
-                "--prefer-ffmpeg",
             ]
         else:
             # Prefer 4K → 1440p → 1080p, always with best audio, merged to mp4

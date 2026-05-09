@@ -17,6 +17,7 @@ export default function VideoUploader({ onUploadSuccess }: VideoUploaderProps) {
   const [youtubeUrl, setYoutubeUrl] = useState('')
   const [downloading, setDownloading] = useState(false)
   const [downloadStep, setDownloadStep] = useState('')
+  const [resolutionWarning, setResolutionWarning] = useState<string | null>(null)
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -86,6 +87,7 @@ export default function VideoUploader({ onUploadSuccess }: VideoUploaderProps) {
     setDownloading(true)
     setDownloadStep('Подключаемся к YouTube...')
     setError(null)
+    setResolutionWarning(null)
 
     // Simulate step messages to show progress to user
     const steps = [
@@ -100,6 +102,10 @@ export default function VideoUploader({ onUploadSuccess }: VideoUploaderProps) {
       const response = await api.post('/download-youtube', { url }, {
         timeout: 25 * 60 * 1000,
       })
+      const srcH = response.data.source_height
+      if (srcH && srcH < 1080) {
+        setResolutionWarning(`Видео скачано в ${srcH}p. Режим «Кроп лица» недоступен — используйте «Весь кадр».`)
+      }
       onUploadSuccess(response.data.file_id, response.data.title || response.data.filename)
     } catch (err: any) {
       if (err.code === 'ECONNABORTED') {
@@ -230,6 +236,11 @@ export default function VideoUploader({ onUploadSuccess }: VideoUploaderProps) {
       {error && (
         <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
           <p className="text-red-600 text-sm">{error}</p>
+        </div>
+      )}
+      {resolutionWarning && (
+        <div className="mt-4 p-4 bg-amber-50 border border-amber-300 rounded-lg">
+          <p className="text-amber-800 text-sm font-medium">⚠️ {resolutionWarning}</p>
         </div>
       )}
 
