@@ -1,28 +1,47 @@
 'use client'
 
 import { useState, useEffect, Suspense } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 
 function VerifyEmailContent() {
   const searchParams = useSearchParams()
+  const router = useRouter()
   const email = searchParams.get('email') || ''
+  const token = searchParams.get('token') || ''
 
+  // ── Token verification mode ──────────────────────────────────
+  const [verifyState, setVerifyState] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle')
+  const [verifyError, setVerifyError] = useState('')
+
+  useEffect(() => {
+    if (!token) return
+    setVerifyState('loading')
+    api.post('/auth/verify-email', { token })
+      .then(() => {
+        setVerifyState('ok')
+        setTimeout(() => router.replace('/login?verified=1'), 2500)
+      })
+      .catch((err: any) => {
+        setVerifyError(err?.response?.data?.detail || 'Ссылка недействительна или истекла')
+        setVerifyState('error')
+      })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token])
+
+  // ── Resend mode ──────────────────────────────────────────────
   const [resendTimer, setResendTimer] = useState(30)
   const [canResend, setCanResend] = useState(false)
   const [toastVisible, setToastVisible] = useState(false)
   const [resendError, setResendError] = useState('')
 
-  // Start the 30-sec cooldown on mount
   useEffect(() => {
-    if (resendTimer <= 0) {
-      setCanResend(true)
-      return
-    }
+    if (token) return  // don't run timer in verify mode
+    if (resendTimer <= 0) { setCanResend(true); return }
     const t = setTimeout(() => setResendTimer(s => s - 1), 1000)
     return () => clearTimeout(t)
-  }, [resendTimer])
+  }, [resendTimer, token])
 
   async function handleResend() {
     if (!canResend) return
@@ -31,7 +50,6 @@ function VerifyEmailContent() {
       await api.post('/auth/resend-verification', { email })
       setToastVisible(true)
       setTimeout(() => setToastVisible(false), 1800)
-      // Reset timer
       setCanResend(false)
       setResendTimer(30)
     } catch (err: any) {
@@ -41,6 +59,61 @@ function VerifyEmailContent() {
   }
 
   const timerStr = resendTimer < 10 ? `0:0${resendTimer}` : `0:${resendTimer}`
+
+  // ── Token verification UI ─────────────────────────────────────
+  if (token) {
+    return (
+      <>
+        <style>{`
+          .verify-body {
+            font-family: "Patrick Hand", sans-serif; color: var(--ink); font-size: 18px;
+            background: var(--cream);
+            background-image: radial-gradient(circle at 8% 8%, rgba(255,209,102,.5) 0,transparent 30%),
+              radial-gradient(circle at 96% 14%, rgba(255,143,163,.4) 0,transparent 28%),
+              radial-gradient(circle at 96% 92%, rgba(125,211,192,.4) 0,transparent 30%),
+              radial-gradient(circle at 4% 92%, rgba(201,182,228,.4) 0,transparent 30%);
+            min-height: 100vh; display: flex; flex-direction: column;
+          }
+        `}</style>
+        <div className="verify-body" style={{ alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{
+            background: 'var(--paper)', border: '3px solid var(--ink)',
+            borderRadius: '32px 28px 36px 24px / 26px 32px 24px 36px',
+            boxShadow: '10px 12px 0 var(--ink)', padding: '44px 48px', maxWidth: 480, width: '100%',
+            textAlign: 'center', transform: 'rotate(-1deg)',
+          }}>
+            {verifyState === 'loading' && (
+              <>
+                <div style={{ fontSize: 52, marginBottom: 12 }}>🦖</div>
+                <h1 style={{ fontFamily: '"Caveat", cursive', fontSize: 40 }}>Проверяем ссылку…</h1>
+              </>
+            )}
+            {verifyState === 'ok' && (
+              <>
+                <div style={{ fontSize: 52, marginBottom: 12 }}>✅</div>
+                <h1 style={{ fontFamily: '"Caveat", cursive', fontSize: 40, color: 'var(--ink)' }}>Email подтверждён!</h1>
+                <p style={{ color: 'var(--ink-soft)', marginTop: 10 }}>Переходим в студию… 🦖</p>
+              </>
+            )}
+            {verifyState === 'error' && (
+              <>
+                <div style={{ fontSize: 52, marginBottom: 12 }}>😬</div>
+                <h1 style={{ fontFamily: '"Caveat", cursive', fontSize: 36 }}>Ссылка не работает</h1>
+                <p style={{ color: 'var(--ink-soft)', marginTop: 10, fontSize: 16 }}>{verifyError}</p>
+                <Link href="/register" style={{
+                  display: 'inline-block', marginTop: 20,
+                  fontFamily: '"Caveat", cursive', fontSize: 22,
+                  border: '3px solid var(--ink)', padding: '8px 20px 6px',
+                  borderRadius: '16px 20px 14px 18px', boxShadow: '3px 4px 0 var(--ink)',
+                  background: 'var(--yellow)', color: 'var(--ink)', textDecoration: 'none',
+                }}>← Зарегистрироваться снова</Link>
+              </>
+            )}
+          </div>
+        </div>
+      </>
+    )
+  }
 
   return (
     <>

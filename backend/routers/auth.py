@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy.orm import Session
@@ -29,6 +29,7 @@ from services.auth import (
     pwd_context,
 )
 from services import storage as s3
+from services.email import create_verification_token, consume_verification_token, send_verification_email
 from services.observability import get_logger
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -55,17 +56,18 @@ class RefreshRequest(BaseModel):
 # ── Endpoints ─────────────────────────────────────────────────
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
-async def register(body: RegisterRequest, db: Session = Depends(get_db)):
+async def register(
+    body: RegisterRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
     """
-    Create a new account.
-    Always returns 201 — does NOT reveal whether email already exists
-    (prevents user enumeration via timing/response differences).
+    Create a new account and send verification email.
+    Always returns 201 — does NOT reveal whether email already exists.
     """
     existing = db.query(User).filter_by(email=body.email.lower()).first()
     if existing:
-        # Run hash anyway to keep constant time — then return same shape
         hash_password(body.password)
-        # Return 201 with a generic message (no leak of existence)
         return {"message": "If this email is new, your account has been created."}
 
     user = User(
@@ -77,8 +79,52 @@ async def register(body: RegisterRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
 
+    token = create_verification_token(str(user.id))
+    background_tasks.add_task(send_verification_email, user.email, token)
+
     log.info("user_registered", user_id=str(user.id))
     return {"message": "If this email is new, your account has been created."}
+
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+
+@router.post("/resend-verification", status_code=status.HTTP_200_OK)
+async def resend_verification(
+    body: ResendVerificationRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """Resend email verification link. Always returns 200 to prevent enumeration."""
+    user = db.query(User).filter_by(email=body.email.lower(), is_active=True).first()
+    if user and not user.is_verified:
+        token = create_verification_token(str(user.id))
+        background_tasks.add_task(send_verification_email, user.email, token)
+    return {"message": "If this email exists and is unverified, a new link has been sent."}
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str
+
+
+@router.post("/verify-email", status_code=status.HTTP_200_OK)
+async def verify_email(body: VerifyEmailRequest, db: Session = Depends(get_db)):
+    """Confirm email address using the one-time token from the verification link."""
+    user_id = consume_verification_token(body.token)
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ссылка недействительна или истекла.")
+
+    user = db.query(User).filter_by(id=user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Пользователь не найден.")
+
+    if not user.is_verified:
+        user.is_verified = True
+        db.commit()
+        log.info("user_verified", user_id=str(user.id))
+
+    return {"message": "Email подтверждён!", "email": user.email}
 
 
 class JsonLoginRequest(BaseModel):
