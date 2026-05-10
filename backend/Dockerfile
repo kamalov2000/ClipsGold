@@ -8,9 +8,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxext6 \
     libxrender1 \
     wget \
+    curl \
     fontconfig \
     fonts-noto-color-emoji \
     fonts-liberation \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

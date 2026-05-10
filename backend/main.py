@@ -1313,10 +1313,11 @@ def _run_yt_dlp_download(url: str, output_path: Path) -> dict:
         'merge_output_format': 'mp4',
         'quiet': False,
         'no_warnings': False,
-        # Use iOS/Android client — no JS n-challenge required, formats available directly
+        # web client with Node.js for n-param decryption (DASH 4K/1080p)
+        # tv_embedded as fallback (no n-challenge on many videos)
         'extractor_args': {
             'youtube': {
-                'player_client': ['ios', 'android', 'web'],
+                'player_client': ['web', 'tv_embedded'],
             },
         },
         # Parallel fragment download (speeds up segmented streams 3-4x)
