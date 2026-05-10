@@ -84,10 +84,11 @@ def _make_simple_token(email: str) -> str:
 
 
 def _verify_simple_token(token: str) -> str:
-    """Decode token and return email, or raise HTTPException 401."""
+    """Decode JWT and return sub. Accepts both 'access' tokens (from the main
+    auth system) and legacy 'simple' tokens — both are signed with JWT_SECRET_KEY."""
     try:
         payload = _jose_jwt.decode(token, _SIMPLE_JWT_SECRET, algorithms=[_SIMPLE_JWT_ALG])
-        if payload.get("type") != "simple":
+        if payload.get("type") not in ("access", "simple"):
             raise _JWTError("wrong type")
         return payload["sub"]
     except _JWTError:
