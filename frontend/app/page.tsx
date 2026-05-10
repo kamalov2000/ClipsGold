@@ -22,9 +22,7 @@ export default function Home() {
     api.get('/auth/me')
       .then(() => { setIsAuthed(true) })
       .catch(() => { clearToken() })
-      .finally(() => setAuthChecked(false))
-    setAuthChecked(true)
-    setIsAuthed(true)
+      .finally(() => { setAuthChecked(true) })
   }, [])
 
   const handleUploadSuccess = (id: string, name: string) => {
