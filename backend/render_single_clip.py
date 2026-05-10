@@ -225,36 +225,31 @@ async def render_single_clip_with_progress(
         from services.interview_reframer import create_interview_reframer
         print("  -> INTERVIEW MODE: Smart pan speaker crop...")
 
-        # Reject sources below 1080p — smart pan requires at minimum 1080p height
+        # Fall back to blur background if source is below 1080p
         if _src_h is not None and _src_h < 1080:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"Режим «Кроп лица» требует источник не ниже 1080p. "
-                    f"Текущее разрешение: {_src_w}×{_src_h}"
-                ),
-            )
-
-        _irf = create_interview_reframer()
-        try:
-            _trans_segs = (transcription_data or {}).get("segments", [])
-            _ia = _irf.analyze(
-                input_file,
-                clip["start_time"],
-                clip["end_time"],
-                transcription_segments=_trans_segs,
-            )
-            _if = _irf.generate_filter_complex(_ia)
-            if _if:
-                is_interview_mode = True
-                crop_filter = _if
-                print(f"  -> Interview: mode={_ia.mode}, segments={len(_ia.segments)}")
-            else:
-                print("  -> Interview filter generation failed, using standard crop")
-        except Exception as e:
-            print(f"  [WARN] Interview mode failed: {e}")
-        finally:
-            _irf.close()
+            print(f"  [WARN] Face crop requires 1080p+, source is {_src_w}×{_src_h} — falling back to blur background")
+            _force_blur = True
+        else:
+            _irf = create_interview_reframer()
+            try:
+                _trans_segs = (transcription_data or {}).get("segments", [])
+                _ia = _irf.analyze(
+                    input_file,
+                    clip["start_time"],
+                    clip["end_time"],
+                    transcription_segments=_trans_segs,
+                )
+                _if = _irf.generate_filter_complex(_ia)
+                if _if:
+                    is_interview_mode = True
+                    crop_filter = _if
+                    print(f"  -> Interview: mode={_ia.mode}, segments={len(_ia.segments)}")
+                else:
+                    print("  -> Interview filter generation failed, using standard crop")
+            except Exception as e:
+                print(f"  [WARN] Interview mode failed: {e}")
+            finally:
+                _irf.close()
 
     # Auto mode: smart pan using face center from crop_preview
     if not is_interview_mode and not _force_blur and crop_preview and "crop_x" in crop_preview:
