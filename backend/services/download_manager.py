@@ -299,13 +299,12 @@ class UniversalDownloader:
                 "--audio-quality", "0",
             ]
         else:
-            # Prefer 4K → 1440p → 1080p, always with best audio, merged to mp4
+            # Prefer 1080p+, fall back to best available — no ext lock so VP9/webm also match
             cmd += [
                 "-f", (
-                    "bestvideo[height>=2160][ext=mp4]+bestaudio[ext=m4a]"
-                    "/bestvideo[height>=1440][ext=mp4]+bestaudio[ext=m4a]"
-                    "/bestvideo[height>=1080][ext=mp4]+bestaudio[ext=m4a]"
-                    "/best[ext=mp4]/best"
+                    "bestvideo[height<=1080]+bestaudio"
+                    "/best[height<=1080]"
+                    "/best"
                 ),
                 "--merge-output-format", "mp4",
             ]
@@ -317,6 +316,7 @@ class UniversalDownloader:
             "--retries", "5",
             "--fragment-retries", "10",
             "--no-warnings",
+            "--js-runtimes", "node",
             "-o", str(output),
         ]
 

@@ -45,7 +45,7 @@ class SubtitleGeneratorV2:
     def __init__(self, use_semantic_chunking: bool = True):
         self.use_semantic_chunking = use_semantic_chunking
 
-    def _build_style_template(self, subtitle_style: str = "hormozi", platform: str = "tiktok") -> str:
+    def _build_style_template(self, subtitle_style: str = "hormozi", platform: str = "tiktok", margin_v_override: Optional[int] = None) -> str:
         """
         Build ASS [Script Info] + [V4+ Styles] block.
         MarginV is computed from the platform safe-zone rules engine
@@ -69,8 +69,10 @@ class SubtitleGeneratorV2:
                 self._last_fonts_dir = str(Path(candidate).parent)
                 break
 
-        # Safe-zone rules engine overrides the style's default margin
-        margin_v = get_safe_margin_v(platform)
+        # Safe-zone rules engine overrides the style's default margin.
+        # In blur/full-frame mode the caller passes margin_v_override so subtitles
+        # sit at the bottom edge of the letterboxed video instead of the UI safe-zone.
+        margin_v = margin_v_override if margin_v_override is not None else get_safe_margin_v(platform)
         hook_margin_v = get_hook_margin_v(platform)
         highlight_size = int(size * 1.12)
 
@@ -329,6 +331,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         crop_preview: Optional[Dict] = None,
         subtitle_style: str = "hormozi",
         subtitle_language: str = "auto",
+        margin_v_override: Optional[int] = None,
     ) -> List[float]:
         """Generate ASS subtitle file with word-level highlighting.
         subtitle_style: 'hormozi' | 'minimal'
@@ -353,7 +356,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             clip_duration = clip_end_time - clip_start_time if clip_end_time else 30
         
         # Start with style template (dynamic per subtitle_style + platform safe-zones)
-        ass_content = self._build_style_template(subtitle_style, platform)
+        ass_content = self._build_style_template(subtitle_style, platform, margin_v_override)
         
         # Process word-level subtitles
         total_subtitle_lines = 0

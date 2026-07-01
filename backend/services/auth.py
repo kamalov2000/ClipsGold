@@ -13,6 +13,7 @@ import secrets
 from datetime import datetime, timedelta
 from typing import Optional
 
+from dotenv import load_dotenv
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
@@ -24,7 +25,17 @@ from db.session import get_db
 from db.models import User, RefreshToken
 
 # ── Config ────────────────────────────────────────────────────
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", secrets.token_hex(32))
+load_dotenv()
+
+# Single source of truth for the JWT signing secret. No insecure default:
+# the app refuses to start if it is missing (prevents per-process random
+# keys that would make tokens invalid across workers).
+SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError(
+        "JWT_SECRET_KEY is not set — refusing to start with an insecure default. "
+        "Generate one: python -c \"import secrets; print(secrets.token_hex(32))\""
+    )
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "30"))

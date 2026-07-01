@@ -118,8 +118,8 @@ backend/
 
 ```bash
 # Обязательно
-TELEGRAM_BOT_TOKEN=8251121826:AAFBouO6Upt-v3oJ3gM4RfDtqy3anNMFcVc
-TELEGRAM_CHAT_ID=731850710
+TELEGRAM_BOT_TOKEN=<задаётся в .env>
+TELEGRAM_CHAT_ID=<задаётся в .env>
 
 # Опционально
 OPENAI_API_KEY=sk-...           # Для GPT-4o анализа

@@ -57,22 +57,50 @@ def _send(payload: dict) -> bool:
         return False
 
 
+def _probe_video_dims(path: Path):
+    """ffprobe → (width, height, duration_sec) кодированного видео; (None,None,None) при ошибке."""
+    try:
+        import subprocess, json as _json
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height:format=duration",
+             "-of", "json", str(path)],
+            capture_output=True, text=True, timeout=20,
+        )
+        if r.returncode != 0:
+            return None, None, None
+        d = _json.loads(r.stdout)
+        st = (d.get("streams") or [{}])[0]
+        dur = d.get("format", {}).get("duration")
+        return st.get("width"), st.get("height"), (int(float(dur)) if dur else None)
+    except Exception:
+        return None, None, None
+
+
 def _send_video(path: Path, caption: str) -> bool:
     """Send video file — plays inline in Telegram."""
     if not BOT_TOKEN or not CHAT_ID:
         return False
     try:
         import httpx
+        w, h, dur = _probe_video_dims(path)
+        data = {
+            "chat_id": CHAT_ID,
+            "caption": caption[:1024],
+            "parse_mode": "HTML",
+            "supports_streaming": "true",
+        }
+        # Явные размеры: без них мобильный Telegram растягивает плеер (на десктопе ок).
+        if w and h:
+            data["width"] = w
+            data["height"] = h
+        if dur:
+            data["duration"] = dur
         with open(path, "rb") as f:
             with httpx.Client(timeout=120) as client:
                 resp = client.post(
                     _api_url("sendVideo"),
-                    data={
-                        "chat_id": CHAT_ID,
-                        "caption": caption[:1024],
-                        "parse_mode": "HTML",
-                        "supports_streaming": "true",
-                    },
+                    data=data,
                     files={"video": (path.name, f, "video/mp4")},
                 )
                 if resp.status_code != 200:
@@ -167,11 +195,14 @@ def notify_render_complete(
     clip_path: Optional[Path] = None,
     source_width: Optional[int] = None,
     source_height: Optional[int] = None,
+    mode_label: Optional[str] = None,
 ) -> bool:
     """Send Telegram notification when a manual render completes."""
     caption = f"<b>✂️ Клип готов!</b>\n\n<b>{title[:80]}</b>"
     src_label = _resolution_label(source_width, source_height)
     caption += f"\n\n📹 Источник: {src_label} → выходное 1080×1920"
+    if mode_label:
+        caption += f"\n🎬 Режим: {mode_label}"
 
     if clip_path and clip_path.exists():
         size_mb = clip_path.stat().st_size / 1024 / 1024

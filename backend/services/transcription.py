@@ -1,5 +1,5 @@
 """
-Transcription service: OpenAI Whisper API (whisper-1).
+Transcription service: Groq Whisper API (whisper-large-v3-turbo).
 Word-level timestamps via verbose_json + timestamp_granularities.
 Large files split into 10-minute chunks processed sequentially.
 """
@@ -50,9 +50,12 @@ _WORD_CORRECTIONS = {
 
 def _get_client():
     from openai import AsyncOpenAI
+    groq_key = os.environ.get("GROQ_API_KEY")
+    if groq_key:
+        return AsyncOpenAI(api_key=groq_key, base_url="https://api.groq.com/openai/v1")
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
-        raise ValueError("OPENAI_API_KEY is not set")
+        raise ValueError("Neither GROQ_API_KEY nor OPENAI_API_KEY is set")
     return AsyncOpenAI(api_key=api_key)
 
 
@@ -163,8 +166,9 @@ async def _transcribe_chunk(
     initial_prompt: Optional[str] = None,
 ) -> object:
     """Call OpenAI Whisper API for one audio file. Returns raw API response."""
+    use_groq = bool(os.environ.get("GROQ_API_KEY"))
     kwargs: dict = {
-        "model":                    "whisper-1",
+        "model":                    "whisper-large-v3-turbo" if use_groq else "whisper-1",
         "response_format":          "verbose_json",
         "timestamp_granularities":  ["word", "segment"],
     }
@@ -204,7 +208,8 @@ async def run_whisper_transcribe_async(
         if on_chunk_done:
             await on_chunk_done(done, total)
 
-    print(f"[transcription] OpenAI whisper-1 | {path.name} | {file_size/1024/1024:.1f} MB")
+    provider = "Groq whisper-large-v3-turbo" if os.environ.get("GROQ_API_KEY") else "OpenAI whisper-1"
+    print(f"[transcription] {provider} | {path.name} | {file_size/1024/1024:.1f} MB")
 
     duration = await asyncio.to_thread(_ffprobe_duration, path)
 

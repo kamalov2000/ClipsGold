@@ -56,11 +56,21 @@ configure_logging()
 log = get_logger(__name__)
 
 # ── Simple single-account auth ────────────────────────────────
-# Credentials read from env; fall back to safe defaults shown below.
-_ADMIN_EMAIL    = os.getenv("ADMIN_EMAIL",    "admin@clipsgold.io")
-_ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "ClipsGold2024!")
-_SIMPLE_JWT_SECRET = os.getenv("JWT_SECRET_KEY", "clipsgold-simple-jwt-secret-change-me")
-_SIMPLE_JWT_ALG    = "HS256"
+# Credentials read from env; the app refuses to start if required secrets are
+# missing (no insecure defaults).
+_ADMIN_EMAIL    = os.getenv("ADMIN_EMAIL", "admin@clipsgold.io")
+_ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
+if not _ADMIN_PASSWORD:
+    raise RuntimeError(
+        "ADMIN_PASSWORD is not set — refusing to start with an insecure default."
+    )
+if not os.getenv("ANTHROPIC_API_KEY"):
+    raise RuntimeError(
+        "ANTHROPIC_API_KEY is not set — refusing to start without the analysis LLM key."
+    )
+# JWT secret comes from a SINGLE source, validated in services/auth.py.
+from services.auth import SECRET_KEY as _SIMPLE_JWT_SECRET
+_SIMPLE_JWT_ALG = "HS256"
 _SIMPLE_JWT_EXPIRE_HOURS = 24 * 30  # 30 days
 
 
@@ -170,6 +180,7 @@ async def _render_worker():
                 end_time_override=job.get("end_time_override"),
                 render_mode=job.get("render_mode", "auto"),
                 enable_filler_removal=job.get("enable_filler_removal", False),
+                face_zoom=job.get("face_zoom"),
             )
             download_path = f"/download-clip/{job['file_id']}/{result['clip_id']}"
             await manager.send_progress(task_id, {
@@ -191,6 +202,7 @@ async def _render_worker():
                 CLIPS_DIR / result["filename"],
                 result.get("source_width"),
                 result.get("source_height"),
+                result.get("crop_label"),
             )
         except Exception as e:
             import traceback
@@ -700,6 +712,7 @@ async def cut_video_segment_enhanced(
     jump_cut_segments: Optional[List[Dict]] = None,
     emoji_sequence: Optional[List[Dict]] = None,
     is_interview_mode: bool = False,
+    fg_crop_filter: Optional[str] = None,
 ):
     """
     TWO-PASS RENDERING: 1) Physical cut to reset timestamps, 2) Apply effects with 0-based subtitles
@@ -1011,11 +1024,14 @@ async def cut_video_segment_enhanced(
             # [bg]: scale to fill 1080x1920, apply heavy blur
             # [fg]: scale to fit inside 1080x1920 keeping aspect ratio
             # overlay fg centered on blurred bg
+            # Optional foreground crop (zoom-out face crop): crop a face-centered
+            # window before scaling to width, so subject is smaller and more scene shows.
+            _fgc = f"{fg_crop_filter}," if fg_crop_filter else ""
             if rel_sub:
                 filter_complex = (
                     f"[0:v]split=2[fg_src][bg_src];"
                     f"[bg_src]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,scale=270:480,boxblur=8:2,scale=1080:1920[bg];"
-                    f"[fg_src]scale=1080:-1[fg];"
+                    f"[fg_src]{_fgc}scale=1080:-1[fg];"
                     f"[bg][fg]overlay=(W-w)/2:(H-h)/2[pre_sub];"
                     f"[pre_sub]subtitles={rel_sub}[out]"
                 )
@@ -1023,7 +1039,7 @@ async def cut_video_segment_enhanced(
                 filter_complex = (
                     f"[0:v]split=2[fg_src][bg_src];"
                     f"[bg_src]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,scale=270:480,boxblur=8:2,scale=1080:1920[bg];"
-                    f"[fg_src]scale=1080:-1[fg];"
+                    f"[fg_src]{_fgc}scale=1080:-1[fg];"
                     f"[bg][fg]overlay=(W-w)/2:(H-h)/2[out]"
                 )
             cmd_pass2.extend(["-filter_complex", _pts(_with_logo(filter_complex))])
@@ -1300,24 +1316,18 @@ def _run_yt_dlp_download(url: str, output_path: Path) -> dict:
 
     ydl_opts = {
         'format': (
-            'bestvideo[height>=2160][ext=mp4]+bestaudio[ext=m4a]'
-            '/bestvideo[height>=2160]+bestaudio'
-            '/bestvideo[height>=1440][ext=mp4]+bestaudio[ext=m4a]'
-            '/bestvideo[height>=1440]+bestaudio'
-            '/bestvideo[height>=1080][ext=mp4]+bestaudio[ext=m4a]'
-            '/bestvideo[height>=1080]+bestaudio'
-            '/bestvideo+bestaudio'
+            'bestvideo[height<=1080]+bestaudio'
+            '/best[height<=1080]'
             '/best'
         ),
         'outtmpl': str(output_path),
         'merge_output_format': 'mp4',
         'quiet': False,
         'no_warnings': False,
-        # web client with Node.js for n-param decryption (DASH 4K/1080p)
-        # tv_embedded as fallback (no n-challenge on many videos)
+        # android_vr: provides 1080p without JS n-challenge; web as secondary
         'extractor_args': {
             'youtube': {
-                'player_client': ['web', 'tv_embedded'],
+                'player_client': ['android_vr', 'web'],
             },
         },
         # Parallel fragment download (speeds up segmented streams 3-4x)
@@ -1332,8 +1342,6 @@ def _run_yt_dlp_download(url: str, output_path: Path) -> dict:
             'Accept-Language': 'en-us,en;q=0.5',
             'Sec-Fetch-Mode': 'navigate',
         },
-        # Enable Node.js and Deno for JS execution (required by YouTube extractor)
-        'js_runtimes': {'node': {}, 'deno': {}},
     }
     # Merge SSRF hardening opts (socket_timeout, nocheckcertificate=False, etc.)
     ydl_opts.update(YDL_SSRF_OPTS)
@@ -2006,6 +2014,7 @@ class RenderClipRequest(BaseModel):
     end_time: Optional[float] = None  # User-edited end time override (seconds)
     render_mode: str = "auto"  # "auto" | "face_crop" | "blur_background"
     enable_filler_removal: bool = False  # Remove filler words (ну, это, короче, …)
+    face_zoom: Optional[float] = None  # >1.0 = zoomed-out face crop (wider window + blur fill)
 
 
 @app.post("/extract-clips/{file_id}")
@@ -2301,6 +2310,7 @@ async def render_clip_with_progress(
             "end_time_override": request.end_time,
             "render_mode": request.render_mode,
             "enable_filler_removal": request.enable_filler_removal,
+            "face_zoom": request.face_zoom,
         }
         print(f"  -> Queueing job with task_id={task_id}")
         # Snapshot active count; under asyncio single-thread model this is safe at await boundary
