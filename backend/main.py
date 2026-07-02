@@ -180,6 +180,7 @@ async def _render_worker():
                 end_time_override=job.get("end_time_override"),
                 render_mode=job.get("render_mode", "auto"),
                 enable_filler_removal=job.get("enable_filler_removal", False),
+                show_subtitles=job.get("show_subtitles", True),
             )
             download_path = f"/download-clip/{job['file_id']}/{result['clip_id']}"
             await manager.send_progress(task_id, {
@@ -2010,6 +2011,7 @@ class RenderClipRequest(BaseModel):
     end_time: Optional[float] = None  # User-edited end time override (seconds)
     render_mode: str = "auto"  # "auto" | "face_crop" | "blur_background"
     enable_filler_removal: bool = False  # Remove filler words (ну, это, короче, …)
+    show_subtitles: bool = True  # False = render clean video without subtitle overlay
 
 
 @app.post("/extract-clips/{file_id}")
@@ -2305,6 +2307,7 @@ async def render_clip_with_progress(
             "end_time_override": request.end_time,
             "render_mode": request.render_mode,
             "enable_filler_removal": request.enable_filler_removal,
+            "show_subtitles": request.show_subtitles,
         }
         print(f"  -> Queueing job with task_id={task_id}")
         # Snapshot active count; under asyncio single-thread model this is safe at await boundary

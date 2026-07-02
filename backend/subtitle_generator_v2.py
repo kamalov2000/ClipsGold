@@ -39,6 +39,24 @@ SUBTITLE_STYLES = {
 }
 
 
+import re as _re
+
+# Whisper credit/hallucination phrases that leak in on music/silence
+# ("субтитры создавал…", "видео снял…", "спасибо за просмотр", "subtitles by…").
+_CREDIT_HALLUCINATION_RE = _re.compile(
+    r"субтитры\s+(созда|дела|подготов|редактир)|редактор\s+субтитр|"
+    r"продолжение\s+следует|спасибо\s+за\s+(просмотр|внимание)|"
+    r"подпис\w*\s+на\s+канал|ставьте\s+лайк|видео\s+сн[ия]л|"
+    r"subtitles?\s+by|thanks\s+for\s+watching|dimatorzok|corrections?\s+by",
+    _re.IGNORECASE,
+)
+
+
+def _is_credit_hallucination(text: str) -> bool:
+    """True if the line is a Whisper credit/hallucination artifact, not real speech."""
+    return bool(text and _CREDIT_HALLUCINATION_RE.search(text))
+
+
 class SubtitleGeneratorV2:
     """Subtitle generator with multiple style presets and optional Claude semantic chunking."""
     
@@ -338,6 +356,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         Returns list of sentence start times for zoom effect."""
         
         segments = transcription_data.get("segments", [])
+        if not segments:
+            return []
+
+        # Drop Whisper credit/hallucination lines ("субтитры создавал…", "видео снял…",
+        # "спасибо за просмотр", "subtitles by…") that leak in on music/silence.
+        segments = [s for s in segments if not _is_credit_hallucination(s.get("text", ""))]
         if not segments:
             return []
 

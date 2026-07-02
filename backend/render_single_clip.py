@@ -112,6 +112,7 @@ async def render_single_clip_with_progress(
     subtitle_language: str = "auto",
     render_mode: str = "auto",
     enable_filler_removal: bool = False,
+    show_subtitles: bool = True,
 ):
     """
     Render a single clip with WebSocket progress tracking.
@@ -269,9 +270,9 @@ async def render_single_clip_with_progress(
             _sub_margin_v = (1920 - _fg_h) // 2          # MarginV from bottom = video's bottom edge
             print(f"  -> Subtitles at video bottom edge: MarginV={_sub_margin_v} (fg_h={_fg_h})")
 
-    # Generate subtitles
+    # Generate subtitles (skipped entirely when show_subtitles is False → clean video)
     subtitle_path = None
-    if subtitle_gen and transcription_data:
+    if subtitle_gen and transcription_data and show_subtitles:
         try:
             import time
             timestamp = int(time.time() * 1000)
