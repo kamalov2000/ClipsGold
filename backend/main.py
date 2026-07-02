@@ -202,6 +202,7 @@ async def _render_worker():
                 result.get("source_width"),
                 result.get("source_height"),
                 result.get("crop_label"),
+                result.get("lang_label"),
             )
         except Exception as e:
             import traceback

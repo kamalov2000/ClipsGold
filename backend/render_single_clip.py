@@ -362,6 +362,7 @@ async def render_single_clip_with_progress(
         _crop_label = "Кроп лица"
     else:
         _crop_label = "Кроп 9:16 (центр)"
+    _lang_label = {"ru": "Русский", "en": "English"}.get(subtitle_language, "Оригинал")
 
     # Render with progress tracking
     await cut_video_segment_enhanced_func(
@@ -413,4 +414,5 @@ async def render_single_clip_with_progress(
         "source_width": _src_w,
         "source_height": _src_h,
         "crop_label": _crop_label,
+        "lang_label": _lang_label,
     }

@@ -196,6 +196,7 @@ def notify_render_complete(
     source_width: Optional[int] = None,
     source_height: Optional[int] = None,
     mode_label: Optional[str] = None,
+    lang_label: Optional[str] = None,
 ) -> bool:
     """Send Telegram notification when a manual render completes."""
     caption = f"<b>✂️ Клип готов!</b>\n\n<b>{title[:80]}</b>"
@@ -203,6 +204,8 @@ def notify_render_complete(
     caption += f"\n\n📹 Источник: {src_label} → выходное 1080×1920"
     if mode_label:
         caption += f"\n🎬 Режим: {mode_label}"
+    if lang_label:
+        caption += f"\n🗣 Субтитры: {lang_label}"
 
     if clip_path and clip_path.exists():
         size_mb = clip_path.stat().st_size / 1024 / 1024
