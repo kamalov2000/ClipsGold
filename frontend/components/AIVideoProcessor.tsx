@@ -95,6 +95,9 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
   // Subtitle language per clip
   const [subtitleLanguages, setSubtitleLanguages] = useState<{[key: number]: string}>({})
 
+  // Show/hide subtitles per clip (default: shown)
+  const [showSubtitles, setShowSubtitles] = useState<{[key: number]: boolean}>({})
+
   // Render mode per clip: 'blur_background' (default) | 'interview'
   const [renderModes, setRenderModes] = useState<{[key: number]: 'blur_background' | 'interview'}>({})
 
@@ -360,6 +363,7 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
             : null,
           subtitle_style: subtitleStyles[clipIndex] || 'podcast',
           subtitle_language: subtitleLanguages[clipIndex] || 'auto',
+          show_subtitles: showSubtitles[clipIndex] ?? true,
           enable_jump_cut: enableJumpCut,
           enable_filler_removal: enableFillerRemoval,
           enable_sfx: false,
@@ -912,6 +916,15 @@ export default function AIVideoProcessor({ fileId, fileName, onReset }: VideoPro
                         <option value="auto">🌐 Авто</option>
                         <option value="ru">🇷🇺 Русский</option>
                         <option value="en">🇬🇧 English</option>
+                      </select>
+                      {/* Subtitles on/off */}
+                      <select
+                        value={(showSubtitles[index] ?? true) ? 'on' : 'off'}
+                        onChange={(e) => setShowSubtitles(prev => ({ ...prev, [index]: e.target.value === 'on' }))}
+                        className="text-xs border border-pink-300 rounded-lg px-2 py-1 bg-white text-pink-700 font-semibold focus:ring-2 focus:ring-pink-400 cursor-pointer"
+                      >
+                        <option value="on">💬 Субтитры</option>
+                        <option value="off">🚫 Без субтитров</option>
                       </select>
                       {renderedClip && (
                         <span className="px-2 py-1 bg-green-500 text-white text-xs font-bold rounded">
