@@ -180,7 +180,6 @@ async def _render_worker():
                 end_time_override=job.get("end_time_override"),
                 render_mode=job.get("render_mode", "auto"),
                 enable_filler_removal=job.get("enable_filler_removal", False),
-                face_zoom=job.get("face_zoom"),
             )
             download_path = f"/download-clip/{job['file_id']}/{result['clip_id']}"
             await manager.send_progress(task_id, {
@@ -712,7 +711,6 @@ async def cut_video_segment_enhanced(
     jump_cut_segments: Optional[List[Dict]] = None,
     emoji_sequence: Optional[List[Dict]] = None,
     is_interview_mode: bool = False,
-    fg_crop_filter: Optional[str] = None,
 ):
     """
     TWO-PASS RENDERING: 1) Physical cut to reset timestamps, 2) Apply effects with 0-based subtitles
@@ -1024,14 +1022,11 @@ async def cut_video_segment_enhanced(
             # [bg]: scale to fill 1080x1920, apply heavy blur
             # [fg]: scale to fit inside 1080x1920 keeping aspect ratio
             # overlay fg centered on blurred bg
-            # Optional foreground crop (zoom-out face crop): crop a face-centered
-            # window before scaling to width, so subject is smaller and more scene shows.
-            _fgc = f"{fg_crop_filter}," if fg_crop_filter else ""
             if rel_sub:
                 filter_complex = (
                     f"[0:v]split=2[fg_src][bg_src];"
                     f"[bg_src]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,scale=270:480,boxblur=8:2,scale=1080:1920[bg];"
-                    f"[fg_src]{_fgc}scale=1080:-1[fg];"
+                    f"[fg_src]scale=1080:-1[fg];"
                     f"[bg][fg]overlay=(W-w)/2:(H-h)/2[pre_sub];"
                     f"[pre_sub]subtitles={rel_sub}[out]"
                 )
@@ -1039,7 +1034,7 @@ async def cut_video_segment_enhanced(
                 filter_complex = (
                     f"[0:v]split=2[fg_src][bg_src];"
                     f"[bg_src]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,scale=270:480,boxblur=8:2,scale=1080:1920[bg];"
-                    f"[fg_src]{_fgc}scale=1080:-1[fg];"
+                    f"[fg_src]scale=1080:-1[fg];"
                     f"[bg][fg]overlay=(W-w)/2:(H-h)/2[out]"
                 )
             cmd_pass2.extend(["-filter_complex", _pts(_with_logo(filter_complex))])
@@ -2014,7 +2009,6 @@ class RenderClipRequest(BaseModel):
     end_time: Optional[float] = None  # User-edited end time override (seconds)
     render_mode: str = "auto"  # "auto" | "face_crop" | "blur_background"
     enable_filler_removal: bool = False  # Remove filler words (ну, это, короче, …)
-    face_zoom: Optional[float] = None  # >1.0 = zoomed-out face crop (wider window + blur fill)
 
 
 @app.post("/extract-clips/{file_id}")
@@ -2310,7 +2304,6 @@ async def render_clip_with_progress(
             "end_time_override": request.end_time,
             "render_mode": request.render_mode,
             "enable_filler_removal": request.enable_filler_removal,
-            "face_zoom": request.face_zoom,
         }
         print(f"  -> Queueing job with task_id={task_id}")
         # Snapshot active count; under asyncio single-thread model this is safe at await boundary

@@ -112,7 +112,6 @@ async def render_single_clip_with_progress(
     subtitle_language: str = "auto",
     render_mode: str = "auto",
     enable_filler_removal: bool = False,
-    face_zoom: Optional[float] = None,
 ):
     """
     Render a single clip with WebSocket progress tracking.
@@ -207,8 +206,6 @@ async def render_single_clip_with_progress(
     
     # Get crop filter
     crop_filter = None
-    _fg_crop_filter = None   # foreground crop for zoom-out face crop (blur-fill composite)
-    _fg_h_px = None          # foreground height (px) for subtitle positioning in zoom-out
     crop_preview = clip.get("crop_preview")
 
     # Two render modes only: blur_background (full frame + blur) or interview (dynamic face crop)
@@ -259,34 +256,16 @@ async def render_single_clip_with_progress(
         if _src_w and _src_h and _src_h >= 1080:
             face_cx = crop_preview["crop_x"] + crop_preview["crop_width"] / 2
             x_off, cw, ch = get_face_crop_window(_src_w, _src_h, face_cx)
-            if face_zoom and face_zoom > 1.0:
-                # Zoom-out face crop: take a wider face-centered window and fill the
-                # top/bottom with a blurred background (less "close" than the tight crop).
-                cw2 = min(int(cw * face_zoom), _src_w)
-                cw2 -= cw2 % 2
-                x2 = max(0, min(int(face_cx - cw2 / 2), _src_w - cw2))
-                x2 -= x2 % 2
-                _fg_crop_filter = f"crop={cw2}:{ch}:{x2}:0"
-                _fg_h_px = round((1080 * ch / cw2) / 2) * 2
-                _force_blur = True   # route through the blur-fill composite
-                print(f"  -> Zoom-out face crop: fg {cw2}×{ch} @ {x2} (zoom={face_zoom}, fg_h={_fg_h_px})")
-            else:
-                crop_filter = f"crop={cw}:{ch}:{x_off}:0"
-                print(f"  -> Smart pan: face_cx={face_cx:.0f}, window={cw}×{ch} @ x={x_off}")
+            crop_filter = f"crop={cw}:{ch}:{x_off}:0"
+            print(f"  -> Smart pan: face_cx={face_cx:.0f}, window={cw}×{ch} @ x={x_off}")
 
     # In blur/full-frame mode, place subtitles at the bottom edge of the
     # letterboxed video band instead of the platform UI safe-zone (which would
     # float them in the blurred strip below the actual video).
     _sub_margin_v = None
-    if _force_blur:
-        # Zoom-out face crop sets its own fg height (cropped window); else full-frame fit.
-        if _fg_h_px:
-            _fg_h = _fg_h_px
-        elif _src_w and _src_h:
-            _fg_h = round((1080 * _src_h / _src_w) / 2) * 2  # foreground height after scale=1080:-1 (even)
-        else:
-            _fg_h = None
-        if _fg_h and 0 < _fg_h < 1920:
+    if _force_blur and _src_w and _src_h:
+        _fg_h = round((1080 * _src_h / _src_w) / 2) * 2  # foreground height after scale=1080:-1 (even)
+        if 0 < _fg_h < 1920:
             _sub_margin_v = (1920 - _fg_h) // 2          # MarginV from bottom = video's bottom edge
             print(f"  -> Subtitles at video bottom edge: MarginV={_sub_margin_v} (fg_h={_fg_h})")
 
@@ -377,8 +356,6 @@ async def render_single_clip_with_progress(
     print(f"  -> Mode: {_mode_label}")
     if is_interview_mode:
         _crop_label = "Кроп лица (интервью)"
-    elif _fg_crop_filter:
-        _crop_label = "Кроп лица (отъезд)"
     elif letterbox_with_blur:
         _crop_label = "Полный кадр (размытие по краям)"
     elif crop_filter:
@@ -405,7 +382,6 @@ async def render_single_clip_with_progress(
         jump_cut_segments=jump_cut_segments,
         emoji_sequence=emoji_sequence,
         is_interview_mode=is_interview_mode,
-        fg_crop_filter=_fg_crop_filter,
     )
 
     print(f"[OK] Clip {clip_index + 1} rendered successfully: {clip_filename}")
