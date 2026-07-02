@@ -281,7 +281,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         prompt = f"Translate each line to {lang_name}. Return ONLY the translated lines in the same order, one per line, no numbering.\n\n" + "\n".join(texts)
 
         try:
-            translated = claude_completion_sync(user=prompt, system=None, max_tokens=2048)
+            translated = claude_completion_sync(user=prompt, system=None, max_tokens=4096)
             translated_lines = translated.strip().split("\n")
         except Exception as e:
             print(f"  [WARN] Translation failed: {e}")
@@ -340,6 +340,20 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         segments = transcription_data.get("segments", [])
         if not segments:
             return []
+
+        # Translate ONLY this clip's segments. Translating the whole video's segments
+        # in one call overflows the model's token budget, so its output is truncated and
+        # later clips silently fall back to the original language. Restrict to the clip
+        # time range FIRST so translation covers exactly what this clip needs.
+        if subtitle_language in ("en", "ru"):
+            _c_end = clip_end_time if clip_end_time is not None else (
+                clip_start_time + clip_duration if clip_duration else clip_start_time + 3600
+            )
+            segments = [
+                s for s in segments
+                if s.get("end", s.get("start", 0)) >= clip_start_time
+                and s.get("start", 0) <= _c_end
+            ]
 
         # Translation: if subtitle_language is 'en' or 'ru' and differs from auto,
         # translate segments before generating subtitle lines.
